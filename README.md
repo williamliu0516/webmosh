@@ -10,8 +10,43 @@ No terminal app on your devices. Your SSH keys stay on your own relay.</p>
 
 <p align="center"><img alt="webmosh on an iPad: three tabs, vim open over mosh in the first" src="docs/images/hero.png" width="88%"></p>
 
-<p align="center"><img alt="The same line typed into a mosh tab and an ssh tab over a one-second round trip: the mosh tab shows each key at once, underlined until the server confirms it; the ssh tab shows each key a second later." src="docs/images/demo.gif" width="100%"><br>
-<sub>Over a one-second round trip, mosh draws your keys as you type them; an ssh terminal shows each a second later.</sub></p>
+<p align="center"><img alt="Two iPads get the same keys at the same moment over a one-second round trip: webmosh on the left shows each key as it is typed, underlined until the server confirms it; an ssh app on the right shows each key a second later." src="docs/images/demo-1-slow-link.gif" width="100%"><br>
+<sub>Typing over a one-second round trip: webmosh on the left, an ssh app on the right, the same keys at the same moment.
+Four more situations below. (<a href="docs/images/demo-1-slow-link.mp4">video</a>)</sub></p>
+
+## mosh, not ssh
+
+The same two iPads, the same keys at the same moment, over the same link: a real OpenSSH on the right. The link is
+simulated on one computer: in the page and a proxy for the network change, macOS's network emulator (dummynet) for the
+others, alike for both iPads. Seconds where nothing moves are cut, and the pictures say so.
+
+### The network changes, Wi-Fi to phone
+
+ssh's connection is reset and its session is gone; webmosh says how long since it last heard from the server, then
+carries on with nothing lost. (<a href="docs/images/demo-2-network-change.mp4">video</a>)
+
+<img alt="Both iPads run a clock. The network changes from Wi-Fi to 5G: the ssh app prints Connection reset by peer and Broken pipe and its clock is gone; webmosh freezes, shows mosh: Last contact 9 seconds ago, then the clock carries on with every line." src="docs/images/demo-2-network-change.gif" width="100%">
+
+### Half the packets lost
+
+At the edge of coverage webmosh keeps counting; ssh stalls for seconds while TCP waits to resend, and falls behind.
+(<a href="docs/images/demo-3-lossy-link.mp4">video</a>)
+
+<img alt="Both count five numbers a second over a link that loses half its packets: webmosh reaches 41, the ssh app stalls for seconds at a time and reaches 25." src="docs/images/demo-3-lossy-link.gif" width="100%">
+
+### Ctrl-C on a runaway command
+
+On a slow phone link with a big buffer, webmosh stops at once: it only ever sends the latest screen. ssh scrolls on
+through everything it was already sent. (<a href="docs/images/demo-4-ctrl-c.mp4">video</a>)
+
+<img alt="Both print numbers as fast as they can over a 1 Mbit/s link with a big buffer; after Ctrl-C webmosh stops in a fraction of a second, the ssh app goes on scrolling for about ten seconds." src="docs/images/demo-4-ctrl-c.gif" width="100%">
+
+### The iPad goes to sleep mid-edit
+
+Afterwards the first key in ssh gets "Broken pipe", and the editor with the unsaved text is gone; webmosh is right
+where it was. (<a href="docs/images/demo-5-sleep.mp4">video</a>)
+
+<img alt="Both iPads are writing in vim, not saved. The iPads sleep; later the writing goes on: the ssh app prints Broken pipe and the editor is gone, webmosh's vim takes the new text." src="docs/images/demo-5-sleep.gif" width="100%">
 
 ## What you get
 
@@ -86,6 +121,24 @@ datagrams to a small relay, which forwards them to an unmodified `mosh-server`.
 </picture>
 
 ## Getting started
+
+1. **Install the relay** on a computer that stays on. (<a href="docs/images/install-1-relay.mp4">video</a>)
+
+   <img alt="On a Mac terminal, curl downloads install-relay.sh and bash runs it: it downloads and checks the relay, writes its config, installs the service and prints the page's address." src="docs/images/install-1-relay.gif" width="100%">
+
+2. **Open its address** on the iPad, in Safari or any browser on your tailnet. (<a href="docs/images/install-2-open.mp4">video</a>)
+
+   <img alt="On an iPad, Safari opens the address; the webmosh prompt appears and hosts lists the Mac." src="docs/images/install-2-open.gif" width="100%">
+
+3. **mosh to it.** (<a href="docs/images/install-3-mosh.mp4">video</a>)
+
+   <img alt="mosh mac-mini connects; uname and echo run on the Mac." src="docs/images/install-3-mosh.gif" width="100%">
+
+4. **More tabs, and ssh too.** (<a href="docs/images/install-4-tabs.mp4">video</a>)
+
+   <img alt="Cmd+Shift+T opens a second tab, which connects with ssh mac-mini; Cmd+1 goes back to the mosh tab." src="docs/images/install-4-tabs.gif" width="100%">
+
+<sub>The installer's output is real, from a sandbox with a made-up machine name; the iPad is the real page.</sub>
 
 No Raspberry Pi needed: the relay runs on any Linux or macOS computer on your tailnet that stays on, such as a Mac
 mini or an iMac, a home server or NAS, a Raspberry Pi, or a small cloud server with Tailscale on it.

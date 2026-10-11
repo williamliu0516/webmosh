@@ -17,19 +17,21 @@ jobs:
   build:
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0   # git describe: the version the relay reports
-      - uses: actions/setup-go@v5
+      - name: tags as they are (checkout turns the pushed tag into a lightweight one, which git describe skips)
+        run: git fetch --force --tags origin
+      - uses: actions/setup-go@v7
         with:
           go-version-file: relay/go.mod
           cache-dependency-path: relay/go.sum
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version: 22
           cache: npm
           cache-dependency-path: web/package-lock.json
-      - uses: mymindstorm/setup-emsdk@v14
+      - uses: mymindstorm/setup-emsdk@v16
         with:
           version: 6.0.11   # what the WebAssembly is built and tested with
       - name: tools
@@ -48,7 +50,7 @@ jobs:
           done
           cp scripts/install-relay.sh relay/service/webmosh-relay.service relay/service/webmosh.relay.plist dist/
           (cd dist && sha256sum -- * > SHA256SUMS && cat SHA256SUMS)
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: webmosh-relay
           path: dist/
