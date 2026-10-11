@@ -7,13 +7,34 @@
 
 <p align="center"><b>Real <a href="https://mosh.org">mosh</a> in a browser tab.</b><br>
 On any device with a browser: phone, tablet or computer, and at its best on an iPad.<br>
-No terminal app to install. Your SSH keys stay on your own relay.</p>
+No terminal app to install. Your SSH keys stay on your own relay.<br>
+<b>Needs <a href="#install">Tailscale</a></b> on the relay's computer and on every device you use it from.</p>
 
 <p align="center"><img alt="webmosh on an iPad: three tabs, vim open over mosh in the first" src="docs/images/hero.png" width="88%"></p>
 
 <p align="center"><img alt="Two iPads get the same keys at the same moment over a one-second round trip: webmosh on the left shows each key as it is typed, underlined until the server confirms it; an ssh app on the right shows each key a second later." src="docs/images/demo-1-slow-link.gif" width="100%"><br>
 <sub>Typing over a one-second round trip: webmosh on the left, an ssh app on the right, the same keys at the same moment.
-Four more situations below. (<a href="docs/images/demo-1-slow-link.mp4">video</a>)</sub></p>
+Four more situations in <a href="#mosh-not-ssh">mosh, not ssh</a>. (<a href="docs/images/demo-1-slow-link.mp4">video</a>)</sub></p>
+
+## Install
+
+> [!IMPORTANT]
+> **webmosh needs [Tailscale](https://tailscale.com/download).** The relay is reachable only on your tailnet, and
+> your Tailscale login is the only way in (there is no password). Install Tailscale on the relay's computer and on
+> every device you open webmosh on (iPad, phone, computer), each signed in with the same Tailscale account. The free
+> Personal plan is enough.
+
+On a Linux or macOS computer that stays on (it becomes the relay), with Tailscale signed in, HTTPS certificates on for
+the tailnet (Tailscale's admin console, DNS page) and mosh installed (`brew install mosh`, `apt install mosh`):
+
+```
+curl -fsSLO https://github.com/williamliu0516/webmosh/releases/latest/download/install-relay.sh
+less install-relay.sh     # read it first: it installs a service, with sudo
+bash install-relay.sh     # prints the page's address when the relay is up
+```
+
+Open that address in any browser on a device signed in with that Tailscale account, and type
+`mosh <this computer's name>`. [Getting started](#getting-started) shows each step and what the installer does.
 
 ## mosh, not ssh
 
@@ -110,7 +131,8 @@ so a reload takes them up again as they were.
 - **You keep long jobs in tmux** (builds, agents, servers) and come back to them from wherever you are.
 - **You build dashboards** and want a terminal inside one.
 
-It is not for shared access (one owner per relay), and it needs a computer that stays on for the relay.
+It is not for shared access (one owner per relay), it needs a computer that stays on for the relay, and it needs
+Tailscale on every device.
 
 ## Devices and browsers
 
@@ -121,7 +143,7 @@ It is not for shared access (one owner per relay), and it needs a computer that 
 | **Computer** | Mac, Windows, Linux, ChromeOS, in Chrome, Edge, Safari, Firefox (below) or another Chromium browser. Off Apple keyboards the page's keys are Alt Shift ones, and Ctrl Shift C / V copy and paste. | Chrome on a Mac; a Windows keyboard emulated |
 | **Firefox** | Works, over a WebSocket where the others use WebRTC: Firefox offers WebRTC no address on the Tailscale interface. A lost packet then holds up the screen, as with ssh; the prediction, roaming and sessions that outlive the connection stay. Any browser whose WebRTC cannot reach the relay moves there after two tries. | Firefox on a Mac; Chrome with WebRTC blocked |
 
-Every device needs Tailscale, signed in to the same tailnet as the relay.
+**Every device needs Tailscale,** signed in with the same Tailscale account as the relay ([Install](#install)).
 
 ## How it works
 
@@ -146,7 +168,7 @@ reach the relay (Firefox over Tailscale), a WebSocket of the session's own carri
 
 ## Getting started
 
-1. **Install the relay** on a computer that stays on. (<a href="docs/images/install-1-relay.mp4">video</a>)
+1. **Install the relay** on a computer that stays on, with the [command above](#install). (<a href="docs/images/install-1-relay.mp4">video</a>)
 
    <img alt="On a Mac terminal, curl downloads install-relay.sh and bash runs it: it downloads and checks the relay, writes its config, installs the service and prints the page's address." src="docs/images/install-1-relay.gif" width="100%">
 
@@ -181,24 +203,15 @@ target is the relay's own computer. A MacBook works while it is awake: keep it o
 | Linux, 32-bit ARM (Raspberry Pi OS 32-bit, Pi Zero) | `webmosh-relay-linux-arm` | systemd | built, not run yet |
 | Windows | none: no mosh-server and no Unix terminals there (WSL 2 might do; untested) | | |
 
-On the relay's computer, with [Tailscale](https://tailscale.com/download) and mosh installed (`brew install mosh`,
-`apt install mosh`):
-
-```
-curl -fsSLO https://github.com/williamliu0516/webmosh/releases/latest/download/install-relay.sh
-less install-relay.sh     # read it first: it installs a service, with sudo
-bash install-relay.sh     # prints the page's address when the relay is up
-```
-
-The installer downloads the relay for this computer from the latest release (or `--version v1.2.3`) and checks it
-against the release's `SHA256SUMS`. It reads the computer's tailnet name and your login from Tailscale, writes
-`~/.config/webmosh/relay.json` with this computer as the first host (kept on later runs), installs the launchd or
-systemd service, lets the relay through the macOS firewall when that is on, and publishes the page with
-`tailscale serve --https=8445`. Run it again to update; `--dry-run` shows what it would do, `--uninstall` takes it
-away. Tailscale must have HTTPS certificates on for the tailnet (admin console, DNS page). In a clone of this
-repository it installs your own build instead: `scripts/build-all.sh && scripts/install-relay.sh`. Tried so far: on a
-Mac with Apple silicon, from a build and from release files (install, a mosh and an ssh session over the tailnet,
-update, uninstall), and on a Raspberry Pi as dry runs.
+The installer ([Install](#install)) downloads the relay for this computer from the latest release (or
+`--version v1.2.3`) and checks it against the release's `SHA256SUMS`. It reads the computer's tailnet name and your
+login from Tailscale, writes `~/.config/webmosh/relay.json` with this computer as the first host (kept on later runs), installs
+the launchd or systemd service, lets the relay through the macOS firewall when that is on, and publishes the page
+with `tailscale serve --https=8445`. Run it again to update; `--dry-run` shows what it would do, `--uninstall` takes
+it away; without Tailscale signed in, or without HTTPS certificates on for the tailnet, it stops and says so. In a
+clone of this repository it installs your own build instead: `scripts/build-all.sh && scripts/install-relay.sh`.
+Tried so far: on a Mac with Apple silicon, from a build and from release files (install, a mosh and an ssh session
+over the tailnet, update, uninstall), and on a Raspberry Pi as dry runs.
 
 <details>
 <summary>By hand</summary>
