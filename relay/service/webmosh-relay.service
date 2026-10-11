@@ -1,0 +1,24 @@
+# webmosh relay as a system service on Linux (systemd). Copy it to /etc/systemd/system/, put your user and paths in
+# place of "you", then: sudo systemctl daemon-reload && sudo systemctl enable --now webmosh-relay
+#
+# No sandboxing: the relay starts login shells (local targets, ssh tabs) that must behave like a login (write home,
+# sudo, a real /tmp). KillMode=process keeps the mosh-servers it started alive across a restart; the sessions are kept
+# in StateDirectory and the next relay takes them up again.
+[Unit]
+Description=webmosh relay (mosh over WebRTC)
+After=network-online.target tailscaled.service
+Wants=network-online.target
+
+[Service]
+User=you
+WorkingDirectory=/home/you
+ExecStart=/home/you/webmosh/webmosh-relay -config /home/you/.config/webmosh/relay.json
+Restart=always
+# it binds the tailnet address (TURN): until tailscaled has it, retry
+RestartSec=5
+KillMode=process
+StateDirectory=webmosh
+StateDirectoryMode=0700
+
+[Install]
+WantedBy=multi-user.target

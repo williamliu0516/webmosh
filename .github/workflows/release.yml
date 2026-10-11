@@ -1,0 +1,59 @@
+# A tag v* builds the relay for every platform it runs on (the page and its WebAssembly mosh-client are inside each
+# binary) and publishes them as a GitHub release, with install-relay.sh, the service files and SHA256SUMS, so a relay
+# can be installed without a build environment:
+#   curl -fsSLO https://github.com/<owner>/webmosh/releases/latest/download/install-relay.sh && bash install-relay.sh
+# Run by hand (Actions > release > Run workflow) it builds the same files as an artifact, without a release.
+name: release
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: write   # gh release create
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0   # git describe: the version the relay reports
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: relay/go.mod
+          cache-dependency-path: relay/go.sum
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - uses: mymindstorm/setup-emsdk@v14
+        with:
+          version: 6.0.11   # what the WebAssembly is built and tested with
+      - name: tools
+        run: sudo apt-get update -q && sudo apt-get install -y -q cmake
+      - name: dependencies (mosh 1.4.0, protobuf, nettle; pinned and checksummed)
+        run: scripts/fetch-deps.sh && scripts/build-deps.sh
+      - name: build
+        run: |
+          (cd web && npm ci --no-audit --no-fund)
+          scripts/build-all.sh
+      - name: assemble
+        run: |
+          mkdir dist
+          for p in linux-amd64 linux-arm64 linux-arm darwin-arm64 darwin-amd64; do
+            cp "build/relay/webmosh-relay-$p" dist/
+          done
+          cp scripts/install-relay.sh relay/service/webmosh-relay.service relay/service/webmosh.relay.plist dist/
+          (cd dist && sha256sum -- * > SHA256SUMS && cat SHA256SUMS)
+      - uses: actions/upload-artifact@v4
+        with:
+          name: webmosh-relay
+          path: dist/
+      - name: release
+        if: startsWith(github.ref, 'refs/tags/')
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release create "$GITHUB_REF_NAME" dist/* --title "webmosh $GITHUB_REF_NAME" --generate-notes --verify-tag

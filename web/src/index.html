@@ -1,0 +1,56 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=resizes-content">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<title>webmosh</title>
+<link rel="stylesheet" href="xterm.css">
+<style>
+  /* The defaults. The deployment's custom.css (in the relay's static_dir) comes after these: a font (the terminal uses
+     an @font-face "webmosh-mono" first), a background picture. app.mjs sets --bg and --fg from the theme. */
+  :root { color-scheme: dark; --bg: #1d1f21; --fg: #c5c8c6; }
+  html, body { margin: 0; height: 100%; background: transparent; color: var(--fg); font: 13px -apple-system, system-ui, sans-serif; overflow: hidden; }
+  html { background: var(--bg); }
+  body { display: flex; flex-direction: column; height: 100dvh; }
+  /* top and bottom clear the iPad's rounded screen corners (about 18 pt), which would cut off the ends of the tmux
+     status line in full screen (Kiosk) */
+  #term { flex: 1; min-height: 0; padding: max(18px, env(safe-area-inset-top)) max(8px, env(safe-area-inset-right)) max(16px, env(safe-area-inset-bottom)) max(10px, env(safe-area-inset-left)); }
+  #term .xterm { height: 100%; }
+  /* a press and drag on the terminal is the page's (app.mjs reports it to tmux), never an iPadOS pan */
+  #term { touch-action: none; }
+  /* tabs (tabs.mjs): the bar from two tabs on, over the top corners the terminal pads for otherwise; Ghostty-like,
+     the active tab lit, the others dim until the pointer finds them (Universal Control) */
+  #tabs { display: flex; gap: 4px; flex: none; padding: max(10px, env(safe-area-inset-top)) max(22px, env(safe-area-inset-right)) 2px max(22px, env(safe-area-inset-left));
+    font: 12px -apple-system, system-ui, sans-serif; user-select: none; -webkit-user-select: none; }
+  body.has-tabs #term { padding-top: 6px; }
+  #tabs .tab { flex: 1 1 0; min-width: 0; height: 26px; display: flex; align-items: center; gap: 6px; padding: 0 8px;
+    border-radius: 7px; color: rgba(200, 208, 224, .55); cursor: default; transition: background .15s, color .15s; }
+  #tabs .tab:hover { background: rgba(255, 255, 255, .05); color: rgba(200, 208, 224, .8); }
+  #tabs .tab.active { background: rgba(255, 255, 255, .1); color: var(--fg); }
+  #tabs .name { font-weight: 600; white-space: nowrap; }
+  #tabs .kind { margin-left: 5px; padding: 0 4px; border-radius: 4px; font: 600 9px/14px -apple-system, system-ui, sans-serif;
+    letter-spacing: .04em; text-transform: uppercase; background: rgba(255, 255, 255, .1); opacity: .8; vertical-align: 1px; }
+  #tabs .sub { flex: 1; min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; opacity: .6; }
+  #tabs .key { opacity: .45; font-variant-numeric: tabular-nums; }
+  #tabs .x { width: 16px; height: 16px; flex: none; display: grid; place-items: center; border-radius: 4px; font-size: 14px; line-height: 1; visibility: hidden; }
+  #tabs .tab:hover .x, #tabs .tab.active .x { visibility: visible; }
+  #tabs .x:hover { background: rgba(255, 255, 255, .12); }
+  #tabs .add { flex: none; width: 26px; height: 26px; display: grid; place-items: center; border-radius: 7px; font-size: 17px; color: rgba(200, 208, 224, .55); }
+  #tabs .add:hover { background: rgba(255, 255, 255, .08); color: var(--fg); }
+  /* one tab: a faint + in the bottom-right corner (inside a panel, left of its close button) */
+  #newtab { position: fixed; right: calc(10px + env(safe-area-inset-right)); bottom: calc(10px + env(safe-area-inset-bottom)); z-index: 5;
+    width: 32px; height: 32px; display: grid; place-items: center; border-radius: 50%; background: rgba(255, 255, 255, .08);
+    color: rgba(255, 255, 255, .7); font: 300 20px/1 -apple-system, system-ui, sans-serif; opacity: .3; transition: opacity .2s; user-select: none; -webkit-user-select: none; }
+  html.embedded #newtab { right: calc(50px + env(safe-area-inset-right)); }
+  #newtab:hover { opacity: 1; }
+  [hidden] { display: none !important; }
+  .wm-hide-comp .xterm .composition-view { display: none !important; }
+</style>
+<link rel="stylesheet" href="custom.css">
+</head>
+<body>
+<main id="term"></main>
+<script type="module" src="app.js"></script>
+</body>
+</html>

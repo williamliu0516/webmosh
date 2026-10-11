@@ -1,0 +1,50 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  webmosh relay on macOS (launchd), as a LaunchDaemon that runs as you: it starts at boot, without a login. Put your
+  user name in place of "you", then:
+    sudo install -m 644 -o root -g wheel webmosh.relay.plist /Library/LaunchDaemons/
+    sudo launchctl bootstrap system /Library/LaunchDaemons/webmosh.relay.plist
+  Restart it: sudo launchctl kickstart -k system/webmosh.relay. Stop it: sudo launchctl bootout system/webmosh.relay
+
+  Not a LaunchAgent: on recent macOS launchd put off restarting a user agent after it exited or was killed
+  ("pended nondemand spawn = inefficient" in launchctl print, still not back after minutes), while this daemon was
+  back within seconds. KeepAlive restarts it; AbandonProcessGroup keeps the mosh-servers it started alive across a
+  restart (as systemd's KillMode=process). PATH: mosh-server from Homebrew is in /opt/homebrew/bin. Sessions, hosts
+  and tabs are kept in ~/Library/Application Support/webmosh unless the config's state_dir says otherwise.
+-->
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>webmosh.relay</string>
+  <key>UserName</key>
+  <string>you</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>/Users/you/webmosh/webmosh-relay</string>
+    <string>-config</string>
+    <string>/Users/you/.config/webmosh/relay.json</string>
+  </array>
+  <key>WorkingDirectory</key>
+  <string>/Users/you</string>
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>HOME</key>
+    <string>/Users/you</string>
+    <key>PATH</key>
+    <string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
+  </dict>
+  <key>RunAtLoad</key>
+  <true/>
+  <key>KeepAlive</key>
+  <true/>
+  <key>ThrottleInterval</key>
+  <integer>5</integer>
+  <key>AbandonProcessGroup</key>
+  <true/>
+  <key>StandardOutPath</key>
+  <string>/Users/you/Library/Logs/webmosh-relay.log</string>
+  <key>StandardErrorPath</key>
+  <string>/Users/you/Library/Logs/webmosh-relay.log</string>
+</dict>
+</plist>

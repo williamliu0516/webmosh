@@ -1,0 +1,27 @@
+{
+  "listen": "127.0.0.1:8810",
+  "origin": "https://relay-host.your-tailnet.ts.net:8445",
+  "owner": "you@example.com",
+  "ice_nets": ["100.64.0.0/10"],
+  "turn_listen": "100.64.0.1:3478",
+  "ssh_key": "/home/you/.config/webmosh/id_ed25519",
+  "known_hosts": "/home/you/.config/webmosh/known_hosts",
+  "detached_ttl": "12h",
+  "targets": [
+    {
+      "id": "here",
+      "name": "a shell on the relay's computer",
+      "local": true,
+      "mosh_server": "/usr/bin/mosh-server",
+      "env": { "MOSH_SERVER_NETWORK_TMOUT": "43200" }
+    }
+  ],
+  "default_target": "here",
+  "frame_ancestors": [],
+  "lang": "en",
+  "static_dir": "/home/you/.config/webmosh/static",
+  "page": {
+    "theme": { "background": "#1d1f2100", "foreground": "#c5c8c6", "cursor": "#81a2be" },
+    "terminal": { "lineHeight": 1.1, "cursorStyle": "bar", "allowTransparency": true }
+  }
+}

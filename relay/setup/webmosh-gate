@@ -1,0 +1,97 @@
+#!/bin/sh
+# Forced command for the webmosh relay's key in a computer's ~/.ssh/authorized_keys, installed there by the relay's
+# setup script (relay/setup/setup.sh; the hosts page shows the one line to run):
+#   from="<relay's tailnet IPs>",restrict,pty,command="$HOME/.local/bin/webmosh-gate" ssh-ed25519 ... webmosh-relay@<relay host>
+# restrict: no port, agent or X11 forwarding, no ~/.ssh/rc; pty: a terminal for the shell. What the key can do:
+#   (no command)          an interactive login shell: the terminal's `ssh <host>`
+#   mosh-server ...       a mosh session; mosh-server runs with these fixed options, whatever was asked
+#   webmosh-end <port>    end this user's mosh-server listening on that UDP port AT THE ADDRESS THIS SSH CONNECTION
+#                         REACHED (the relay, when a page's session closes; otherwise it waits out
+#                         MOSH_SERVER_NETWORK_TMOUT). mosh-server -s binds the relay's sessions to that address; other
+#                         mosh sessions (Blink, say) are bound elsewhere and may share the port number.
+#   webmosh-check         report user, shell, system and mosh-server (the relay's test)
+#   webmosh-put <name>    keep stdin (a photo or file from the terminal page, at most 50 MB) as
+#                         ~/Downloads/webmosh/<name>, never over another file, and print its path
+set -eu
+# The setup script puts WEBMOSH_MOSH_SERVER=<path> right after the first line: where mosh-server is on this computer
+# (sshd gives a forced command a bare PATH).
+MOSH_SERVER=${WEBMOSH_MOSH_SERVER:-}
+[ -n "$MOSH_SERVER" ] && [ -x "$MOSH_SERVER" ] || MOSH_SERVER=$(command -v mosh-server 2>/dev/null || true)
+LOCALE=${WEBMOSH_LOCALE:-en_US.UTF-8}
+
+case "${SSH_ORIGINAL_COMMAND:-}" in
+  "")
+    # the user's login shell (-l), as a terminal login starts it
+    sh_path=${SHELL:-/bin/sh}
+    export LANG="${LANG:-$LOCALE}"
+    cd "$HOME"
+    exec "$sh_path" -l
+    ;;
+  "webmosh-check")
+    echo "user=$(id -un)"
+    echo "shell=${SHELL:-}"
+    echo "system=$(uname -s) $(uname -r)"
+    if [ -n "$MOSH_SERVER" ]; then
+      echo "mosh_server=$MOSH_SERVER"
+      echo "mosh_version=$("$MOSH_SERVER" --version 2>/dev/null | head -n 1 || true)"
+    else
+      echo "mosh_server="
+    fi
+    ;;
+  "webmosh-end "*)
+    port=${SSH_ORIGINAL_COMMAND#webmosh-end }
+    case "$port" in ''|*[!0-9]*) echo "webmosh-gate: bad port" >&2; exit 2 ;; esac
+    set -- ${SSH_CONNECTION:-}
+    addr=${3:-}
+    case "$addr" in ''|*[!0-9a-fA-F.:]*) echo "webmosh-gate: no address in SSH_CONNECTION" >&2; exit 2 ;; esac
+    ended=0
+    pids=
+    if command -v lsof >/dev/null 2>&1; then
+      case "$addr" in *:*) spec="[$addr]:$port" ;; *) spec="$addr:$port" ;; esac
+      pids=$(lsof -nP -a -u "$(id -u)" -iUDP@"$spec" -t 2>/dev/null || true)
+    elif command -v ss >/dev/null 2>&1; then
+      # Linux without lsof: users:(("mosh-server",pid=123,fd=4)) on the line of that local address
+      pids=$(ss -H -u -a -n -p 2>/dev/null | awk -v a="$addr:$port" -v b="[$addr]:$port" '$4 == a || $4 == b' |
+        sed -n 's/.*pid=\([0-9][0-9]*\).*/\1/p')
+    fi
+    for pid in $pids; do
+      case "$(ps -o comm= -p "$pid" 2>/dev/null)" in
+        *mosh-server) kill "$pid" && ended=$((ended + 1)) ;;
+      esac
+    done
+    echo "webmosh-gate: ended $ended mosh-server(s) on udp $addr:$port"
+    ;;
+  "webmosh-put "*)
+    name=${SSH_ORIGINAL_COMMAND#webmosh-put }
+    case "$name" in ''|.*|*[!A-Za-z0-9._-]*) echo "webmosh-gate: bad file name" >&2; exit 2 ;; esac
+    [ ${#name} -le 100 ] || { echo "webmosh-gate: file name too long" >&2; exit 2; }
+    dir="$HOME/Downloads/webmosh"
+    mkdir -p "$dir"
+    base=${name%.*}
+    ext=${name#"$base"}
+    path="$dir/$name"
+    n=0
+    umask 077
+    # set -C: the redirection fails on an existing file, so two uploads never write the same one
+    until ( set -C; : > "$path" ) 2>/dev/null; do
+      n=$((n + 1))
+      [ "$n" -le 99 ] || { echo "webmosh-gate: too many files named $name" >&2; exit 1; }
+      path="$dir/$base-$n$ext"
+    done
+    head -c 52428801 > "$path"
+    if [ "$(wc -c < "$path")" -gt 52428800 ]; then
+      rm -f "$path"
+      echo "webmosh-gate: file over 50 MB" >&2
+      exit 1
+    fi
+    echo "$path"
+    ;;
+  mosh-server*|*/mosh-server*)
+    [ -n "$MOSH_SERVER" ] || { echo "webmosh-gate: mosh-server is not installed here" >&2; exit 127; }
+    exec env MOSH_SERVER_NETWORK_TMOUT=43200 "$MOSH_SERVER" new -s -c 256 -l "LANG=$LOCALE"
+    ;;
+  *)
+    echo "webmosh-gate: not allowed: $SSH_ORIGINAL_COMMAND" >&2
+    exit 126
+    ;;
+esac

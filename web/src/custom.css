@@ -1,0 +1,9 @@
+/* A deployment's own styles: the relay serves the custom.css in its static_dir in place of this empty one, with any
+   fonts and pictures it names. For example, a font for the terminal and a picture behind it:
+
+   @font-face { font-family: "webmosh-mono"; src: url(mono-regular.woff2) format("woff2"); font-weight: 400; font-display: block; }
+   @font-face { font-family: "webmosh-mono"; src: url(mono-bold.woff2) format("woff2"); font-weight: 700; font-display: block; }
+   html { background: linear-gradient(rgba(29, 31, 33, .75), rgba(29, 31, 33, .75)), url(background.jpg) center / cover no-repeat, var(--bg); }
+
+   (with "page": {"theme": {"background": "#1d1f2100"}, "terminal": {"allowTransparency": true}} in the relay config,
+   so the cells let the picture through). */
