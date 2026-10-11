@@ -11,6 +11,7 @@ package main
 // redraw the whole screen.
 
 import (
+	"bytes"
 	"fmt"
 	"io"
 	"log"
@@ -21,7 +22,6 @@ import (
 	"time"
 
 	"github.com/creack/pty"
-	"github.com/pion/webrtc/v4"
 	"golang.org/x/crypto/ssh"
 )
 
@@ -30,7 +30,7 @@ const ringMax = 256 << 10
 type ptySession struct {
 	mu         sync.Mutex
 	ring       []byte
-	dc         *webrtc.DataChannel // the attached page (session.go attachPTY), under mu
+	link       link // the attached page (attach), under mu
 	cols, rows int
 	stdin      io.Writer
 	setSize    func(cols, rows int) error
@@ -134,13 +134,13 @@ func (p *ptySession) pump(r io.Reader, wait func()) {
 			if len(p.ring) > ringMax {
 				p.ring = append([]byte(nil), p.ring[len(p.ring)-ringMax:]...)
 			}
-			if dc := p.dc; dc != nil && dc.ReadyState() == webrtc.DataChannelStateOpen {
-				if dc.BufferedAmount() > 8<<20 {
+			if l := p.link; l != nil && l.Open() {
+				if l.Buffered() > 8<<20 {
 					// the page stopped reading (a frozen tab): let it reattach and get the replay instead
-					p.dc = nil
-					go dc.Close()
+					p.link = nil
+					go l.Close()
 				} else {
-					sendChunks(dc, b)
+					sendChunks(l, b)
 				}
 			}
 			p.mu.Unlock()
@@ -151,6 +151,55 @@ func (p *ptySession) pump(r io.Reader, wait func()) {
 	}
 	wait()
 	close(p.done)
+}
+
+// attach: the page's link is open. "reset", the ring's recent output, "live", then live output; a resize nudge makes
+// full-screen programs redraw. The page drops the terminal's answers to queries in the replay. Sent under the pty's
+// lock, so nothing is lost or doubled between the replay and the live output.
+func (p *ptySession) attach(l link) {
+	p.mu.Lock()
+	l.SendText("reset")
+	replay := p.ring
+	if len(replay) >= ringMax {
+		if i := bytes.IndexByte(replay, '\n'); i >= 0 {
+			replay = replay[i+1:]
+		}
+	}
+	sendChunks(l, replay)
+	l.SendText("live")
+	p.link = l
+	p.mu.Unlock()
+	p.nudge()
+}
+
+func (p *ptySession) detach(l link) {
+	p.mu.Lock()
+	if p.link == l {
+		p.link = nil
+	}
+	p.mu.Unlock()
+}
+
+// ptyExited: tell the attached page before the session goes
+func (s *Session) ptyExited() {
+	p := s.pty
+	p.mu.Lock()
+	if p.link != nil && p.link.Open() {
+		p.link.SendText("exit")
+	}
+	p.mu.Unlock()
+}
+
+// sendChunks: SCTP messages stay well under the 64 KB browsers accept
+func sendChunks(l link, b []byte) error {
+	for len(b) > 0 {
+		n := min(len(b), 16<<10)
+		if err := l.Send(b[:n]); err != nil {
+			return err
+		}
+		b = b[n:]
+	}
+	return nil
 }
 
 func (p *ptySession) write(b []byte) {

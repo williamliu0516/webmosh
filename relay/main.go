@@ -203,6 +203,7 @@ func main() {
 	site := siteJSON(cfg)
 	mux := http.NewServeMux()
 	mux.HandleFunc("/ws", r.serveWS)
+	mux.HandleFunc("/link", r.serveLink) // a session's WebSocket link, when WebRTC cannot connect (link.go)
 	mux.HandleFunc("/close", r.serveClose)
 	mux.HandleFunc("/upload", r.serveUpload)
 	mux.HandleFunc("/api/hosts", r.hosts.serveAPI)

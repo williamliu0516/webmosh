@@ -132,6 +132,8 @@ type wsMsg struct {
 	// tabs: the page's saved tabs; hello: this device's, as its page last sent them (devices.go)
 	Saved json.RawMessage `json:"saved,omitempty"`
 	Shown bool            `json:"shown,omitempty"` // shown: the embedding panel shows the terminal (false: hides it)
+	WS    bool            `json:"ws,omitempty"`    // attach: over a WebSocket of its own, not WebRTC (link.go)
+	Link  string          `json:"link,omitempty"`  // answer to such an attach: the /link ticket
 }
 
 type targetInfo struct {
@@ -229,16 +231,24 @@ func (r *Relay) publicKey() (string, error) {
 	return strings.TrimSpace(string(ssh.MarshalAuthorizedKey(signer.PublicKey()))), nil
 }
 
-func (r *Relay) serveWS(w http.ResponseWriter, req *http.Request) {
+// pageRequest: a WebSocket from the owner's page: the owner (allowed), and the page's own origin. The owner's identity
+// comes with every request their browser makes to this host, so a page from anywhere else must not be able to open
+// these sockets (cross-site WebSocket hijacking).
+func (r *Relay) pageRequest(w http.ResponseWriter, req *http.Request) bool {
 	if !r.allowed(req) {
 		http.Error(w, "forbidden", http.StatusForbidden)
-		return
+		return false
 	}
-	// The owner's identity comes with every request their browser makes to this host, so a page
-	// from anywhere else must not be able to open this socket (cross-site WebSocket hijacking).
 	if r.cfg.Origin != "" && req.Header.Get("Origin") != r.cfg.Origin {
-		log.Printf("ws: refused origin %q", req.Header.Get("Origin"))
+		log.Printf("%s: refused origin %q", req.URL.Path, req.Header.Get("Origin"))
 		http.Error(w, "forbidden origin", http.StatusForbidden)
+		return false
+	}
+	return true
+}
+
+func (r *Relay) serveWS(w http.ResponseWriter, req *http.Request) {
+	if !r.pageRequest(w, req) {
 		return
 	}
 	c, err := websocket.Accept(w, req, &websocket.AcceptOptions{InsecureSkipVerify: true}) // origin checked above
@@ -397,6 +407,10 @@ func (r *Relay) serveWS(w http.ResponseWriter, req *http.Request) {
 				continue
 			}
 			s.setOwner(me)
+			if m.WS { // the page's WebRTC cannot reach us: it opens /link with this ticket instead
+				send(wsMsg{T: "answer", ID: s.id, Link: s.linkTicket(), Ref: m.Ref})
+				continue
+			}
 			answer, err := s.attach(r.api, m.SDP)
 			if err != nil {
 				log.Printf("session %s: attach: %v", s.id, err)

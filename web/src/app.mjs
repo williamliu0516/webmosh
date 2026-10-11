@@ -493,7 +493,9 @@ function onMessage(m) {
     case 'answer': {
       const s = tabOf(m.id)?.session;
       // only the answer to the offer in flight: one to an offer since replaced would break the new connection
-      if (s?.pc && (!m.ref || m.ref === s.attachRef)) s.pc.setRemoteDescription({ type: 'answer', sdp: m.sdp }).catch((e) => console.warn('webrtc', e));
+      if (!s?.pc || (m.ref && m.ref !== s.attachRef)) break;
+      if (m.link) openLink(s, s.pc, m.link); // an attach over the WebSocket link (attachLink)
+      else if (s.pc.setRemoteDescription) s.pc.setRemoteDescription({ type: 'answer', sdp: m.sdp }).catch((e) => console.warn('webrtc', e));
       break;
     }
     case 'gone': { // the relay no longer has it (ended there, or lost)
@@ -602,6 +604,19 @@ async function startSession(tab, m) {
   if (active === tab) focusTerm();
 }
 
+// How a session reaches the relay: WebRTC, a data channel that never resends, so mosh's datagrams keep UDP's manners; or,
+// where the browser's WebRTC cannot reach the relay, a WebSocket of the session's own (relay/link.go), where a lost
+// packet holds up the rest as with ssh but the rest of mosh stays. Firefox offers ICE no address on the Tailscale
+// interface (2026-10-10), so it starts on the WebSocket; another browser moves there when no data channel has opened on
+// this page yet and two attaches in a row got none. ?transport=ws or ?transport=webrtc decides (tests). Firefox on iOS is
+// WebKit (FxiOS), whose WebRTC works.
+const FIREFOX = /\bFirefox\//.test(navigator.userAgent);
+const forcedTransport = params.get('transport');
+let rtcWorked = false;
+let rtcMisses = 0;
+const viaLink = () => forcedTransport === 'ws' || (forcedTransport !== 'webrtc' && (FIREFOX || (!rtcWorked && rtcMisses >= 2)));
+const missed = () => { if (!rtcWorked) rtcMisses++; };
+
 // One attach at a time per session: an offer sent on the current socket gets its answer there, or the 6 s retry. A woken
 // iPad page used to start three at once (the visibility handler, the relay's hello, the old channel closing), each
 // closing the one before, and the relay answered offers the page had already dropped (2026-10-10 relay log: closed,
@@ -619,6 +634,7 @@ async function attach(s, why, force = false) {
   s.attachWs = sock;
   s.attachRef = ref;
   life(`${short(s)} attach (${why})`);
+  if (viaLink()) { attachLink(s, ref, t0, why); return; }
   try {
     s.pc?.close();
     // TURN on the relay itself: Safari may hide every host address it has (see relay/turn.go)
@@ -630,6 +646,7 @@ async function attach(s, why, force = false) {
     dc.binaryType = 'arraybuffer';
     dc.onmessage = (e) => s.client.datagram(typeof e.data === 'string' ? e.data : new Uint8Array(e.data));
     dc.onopen = () => {
+      rtcWorked = true;
       if (s.pc === pc) { s.attaching = false; life(`${short(s)} open in ${Math.round(performance.now() - t0)} ms (${why})`); }
       s.client.opened?.();
     };
@@ -640,7 +657,7 @@ async function attach(s, why, force = false) {
       const st = pc.connectionState;
       if (st === 'disconnected' || st === 'failed') { down = true; life(`${short(s)} ${st}${document.hidden ? ' while hidden' : ''}`); }
       else if (st === 'connected' && down) { down = false; life(`${short(s)} connected again`); }
-      if (st === 'failed') attach(s, 'failed', true);
+      if (st === 'failed') { missed(); attach(s, 'failed', true); }
     };
     s.pc = pc;
     s.dc = dc;
@@ -649,11 +666,49 @@ async function attach(s, why, force = false) {
     if (s.pc !== pc) return; // a newer attach took over while this one gathered
     if (ws !== sock || sock.readyState !== WebSocket.OPEN) { s.attaching = false; return; } // the socket went: hello does it
     send({ t: 'attach', id: s.id, sdp: pc.localDescription.sdp, ref });
-    setTimeout(() => { if (s.pc === pc && dc.readyState !== 'open') attach(s, 'no answer in 6 s', true); }, 6000);
+    setTimeout(() => { if (s.pc === pc && dc.readyState !== 'open') { missed(); attach(s, 'no answer in 6 s', true); } }, 6000);
   } catch (e) {
     s.attaching = false;
     console.warn('webrtc', e);
   }
+}
+
+// The WebSocket link (above): the attach goes over the page's socket, which claims the session for this page as an offer
+// does, and is answered with a ticket for /link (openLink). To the rest of the page the link is the session's pc and dc
+// at once: readyState and connectionState, send, close.
+function attachLink(s, ref, t0, why) {
+  s.pc?.close();
+  const ch = {
+    sock: null, t0, why, readyState: 'connecting', connectionState: 'connecting', closed: false,
+    send(b) { if (this.readyState === 'open') this.sock.send(b); },
+    close() { this.closed = true; this.readyState = this.connectionState = 'closed'; this.sock?.close(); },
+  };
+  s.pc = ch;
+  s.dc = ch;
+  send({ t: 'attach', id: s.id, ws: true, ref });
+  setTimeout(() => { if (s.pc === ch && ch.readyState !== 'open') attach(s, 'no link in 6 s', true); }, 6000);
+}
+function openLink(s, ch, ticket) {
+  if (ch.closed || ch.sock) return;
+  const w = new WebSocket(`${location.protocol === 'https:' ? 'wss://' : 'ws://'}${location.host}/link?id=${encodeURIComponent(s.id)}&t=${encodeURIComponent(ticket)}`);
+  w.binaryType = 'arraybuffer';
+  ch.sock = w;
+  w.onopen = () => {
+    if (s.pc !== ch || ch.closed) { w.close(); return; }
+    ch.readyState = 'open';
+    ch.connectionState = 'connected';
+    s.attaching = false;
+    life(`${short(s)} link open in ${Math.round(performance.now() - ch.t0)} ms (${ch.why})`);
+    s.client.opened?.();
+  };
+  w.onmessage = (e) => s.client.datagram(typeof e.data === 'string' ? e.data : new Uint8Array(e.data));
+  w.onclose = () => {
+    const was = ch.readyState;
+    ch.readyState = ch.connectionState = 'closed';
+    if (ch.closed || s.released || s.pc !== ch) return;
+    if (was === 'open') life(`${short(s)} link closed${document.hidden ? ' while hidden' : ''}`);
+    setTimeout(() => { if (s.pc === ch) attach(s, 'link closed', true); }, 500);
+  };
 }
 
 function gathered(pc, ms) {
