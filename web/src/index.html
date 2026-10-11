@@ -44,6 +44,29 @@
     color: rgba(255, 255, 255, .7); font: 300 20px/1 -apple-system, system-ui, sans-serif; opacity: .3; transition: opacity .2s; user-select: none; -webkit-user-select: none; }
   html.embedded #newtab { right: calc(50px + env(safe-area-inset-right)); }
   #newtab:hover { opacity: 1; }
+  /* a touch screen (keyrow.mjs): the keys its keyboard lacks under the terminal while the keyboard is on, else a button
+     in the corner (left of the +) to bring the keyboard back */
+  #keys { display: flex; gap: 6px; flex: none; user-select: none; -webkit-user-select: none; touch-action: manipulation;
+    padding: 4px max(10px, env(safe-area-inset-right)) max(6px, env(safe-area-inset-bottom)) max(10px, env(safe-area-inset-left)); }
+  #keys .strip { flex: 1; min-width: 0; display: flex; gap: 5px; overflow-x: auto; scrollbar-width: none; touch-action: pan-x;
+    -webkit-mask-image: linear-gradient(to right, #000 calc(100% - 22px), transparent); mask-image: linear-gradient(to right, #000 calc(100% - 22px), transparent); }
+  #keys .strip::-webkit-scrollbar { display: none; }
+  #keys button { flex: 1 0 auto; min-width: 34px; max-width: 64px; height: 36px; padding: 0 7px; border: 0; border-radius: 7px;
+    background: rgba(255, 255, 255, .09); color: var(--fg); font: 500 14px -apple-system, system-ui, sans-serif;
+    display: grid; place-items: center; -webkit-tap-highlight-color: transparent; }
+  #keys button:active { background: rgba(255, 255, 255, .2); }
+  #keys button.held { background: var(--fg); color: var(--bg); }
+  #keys .away { flex: none; width: 44px; color: rgba(200, 208, 224, .7); }
+  body.has-keys #term { padding-bottom: 4px; }
+  body.kb-up #keys { padding-bottom: 6px; } /* the keyboard is below: no home indicator to clear */
+  body.has-keys #newtab { bottom: calc(56px + env(safe-area-inset-bottom)); }
+  body.has-keys.kb-up #newtab { bottom: 56px; }
+  #kbtoggle { position: fixed; right: calc(50px + env(safe-area-inset-right)); bottom: calc(10px + env(safe-area-inset-bottom)); z-index: 5;
+    width: 32px; height: 32px; padding: 0; border: 0; display: grid; place-items: center; border-radius: 50%;
+    background: rgba(255, 255, 255, .1); color: rgba(255, 255, 255, .8); opacity: .5; -webkit-tap-highlight-color: transparent; }
+  html.embedded #kbtoggle { right: calc(90px + env(safe-area-inset-right)); }
+  body.has-tabs #kbtoggle { right: calc(10px + env(safe-area-inset-right)); }
+  html.embedded body.has-tabs #kbtoggle { right: calc(50px + env(safe-area-inset-right)); }
   [hidden] { display: none !important; }
   .wm-hide-comp .xterm .composition-view { display: none !important; }
 </style>

@@ -4,8 +4,10 @@
 // A window capture listener: it runs before xterm's own key handling (app.mjs, keys.mjs), so these
 // three never reach the remote, and preventDefault keeps Safari from zooming the page where Safari
 // lets a page have the key (the Kiosk app's web view does; Safari itself may keep Cmd = for its zoom).
+// On other keyboards Ctrl = / - / 0 stay the browser's zoom, which does the same: the terminal refits to the new size.
 
 import { L } from './i18n.mjs';
+import { APPLE } from './platform.mjs';
 
 const KEY = 'webmosh.fontSize';
 export const DEFAULT_SIZE = 15;
@@ -48,7 +50,7 @@ export function fontSizeControls({ term, fit }) {
     apply(true);
   }
 
-  window.addEventListener('keydown', (e) => {
+  if (APPLE) window.addEventListener('keydown', (e) => {
     if (!e.metaKey || e.ctrlKey || e.altKey) return;
     let next;
     if (e.code === 'Equal' || e.key === '=' || e.key === '+') next = size + 1;

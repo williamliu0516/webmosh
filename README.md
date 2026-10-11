@@ -6,7 +6,8 @@
 </p>
 
 <p align="center"><b>Real <a href="https://mosh.org">mosh</a> in a browser tab.</b><br>
-No terminal app on your devices. Your SSH keys stay on your own relay.</p>
+On any device with a browser: phone, tablet or computer, and at its best on an iPad.<br>
+No terminal app to install. Your SSH keys stay on your own relay.</p>
 
 <p align="center"><img alt="webmosh on an iPad: three tabs, vim open over mosh in the first" src="docs/images/hero.png" width="88%"></p>
 
@@ -51,10 +52,14 @@ where it was. (<a href="docs/images/demo-5-sleep.mp4">video</a>)
 ## What you get
 
 - **Real mosh:** local echo and prediction, and a session that rides out network changes and sleep.
+- **Any device:** an iPad, a phone, a Mac, Windows, Linux or a Chromebook, in Safari, Chrome or Edge
+  ([which](#devices-and-browsers)).
+- **A keyboard done right on each:** on an iPad Option as Meta, dead keys, Ctrl and Chinese input; on a phone a row
+  of the keys its keyboard lacks; on Windows and Linux shortcuts that leave the system's and the browser's alone.
 - **Tabs that come back** after a reload or a killed app, back in the same tmux sessions.
 - **ssh tabs too,** with images (sixel, iTerm2) and scrollback, held by the relay.
-- **Photos and files** from the iPad to the remote computer, the path pasted at the cursor (Claude Code attaches it).
-- **An iPad keyboard done right:** Option as Meta, dead keys, Ctrl, Chinese input, the keyboard bar out of the way.
+- **Photos and files** from your phone or iPad to the remote computer, the path pasted at the cursor (Claude Code
+  attaches it).
 - **Any Linux or macOS computer** as the relay, and any of them as a host, set up with one line.
 - **Your own look:** fonts, colours, a picture behind the text, all CSS.
 
@@ -72,7 +77,12 @@ where it was. (<a href="docs/images/demo-5-sleep.mp4">video</a>)
 | Up / Down, Tab | history, completion of commands and host names |
 | Cmd = / Cmd - / Cmd 0 | font size, remembered |
 | Cmd Shift I, Cmd V with a picture, a drop | photos and files to the tab's computer, kept in `~/Downloads/webmosh/` there; the path is pasted at the cursor (Claude Code attaches a pasted image path). HEIC becomes JPEG, at most 50 MB a file |
-| Cmd Shift K, Ctrl Space | iPadOS's keyboard bar on / off (off by default); switch input sources with the bar off |
+| Cmd Shift K, Ctrl Space | the on-screen keyboard and iPadOS's keyboard bar away / back (`page.keyboard` below); switch input sources with the bar away |
+| a touch screen | under the terminal, the keys its keyboard lacks: Esc, Ctrl, Alt, Tab, the arrows, `\|` `~` `/` `-`; Ctrl and Alt hold for the next key, typed or tapped; the last key puts the keyboard away, a button in the corner brings it back |
+
+On Windows, Linux, ChromeOS and Android keyboards the page's keys take Alt Shift in place of Cmd and Cmd Shift
+(Alt Shift T, Alt Shift 1), since the system and the browser keep the others; Ctrl Shift C and Ctrl Shift V copy and
+paste, and the font size is the browser's zoom.
 
 Each tab is a prompt or one session. Tabs share one xterm.js: only the tab on screen draws, and switching has that
 tab's mosh client redraw the whole screen from the state it holds, with no round trip.
@@ -92,13 +102,26 @@ so a reload takes them up again as they were.
 
 ## Who it's for
 
-- **You code from an iPad,** with a keyboard, on computers at home or in the cloud.
+- **You code from an iPad** on computers at home or in the cloud: the device webmosh suits best.
+- **You need a terminal on your phone** now and then: a Ctrl-C, a look at a build, a restart, over a shaky connection.
+- **You are on Windows or a Chromebook,** which have no mosh client of their own.
 - **You run a homelab on Tailscale** and want one address for every computer on it.
-- **You use several devices** and want the same terminal on each without setting up each.
+- **You use several devices** and want the same hosts and tmux sessions on each, without setting up each.
 - **You keep long jobs in tmux** (builds, agents, servers) and come back to them from wherever you are.
 - **You build dashboards** and want a terminal inside one.
 
 It is not for shared access (one owner per relay), and it needs a computer that stays on for the relay.
+
+## Devices and browsers
+
+| Device | What you get | Tried on |
+|---|---|---|
+| **iPad** | The best fit. Full screen in Safari or a kiosk app, like an app of its own; a Magic Keyboard with Option as Meta, dead keys and Chinese input; trackpad selection; copy from tmux into the iPad's clipboard; photos and files to the remote. The keyboard bar can go (`page.keyboard`). | real iPads: Safari, kiosk apps, an app embedding the page |
+| **Phone** | The on-screen keyboard, and above it a row of what it lacks: Esc, Ctrl and Alt for the next key, Tab, arrows that repeat, `\|` `~` `/` `-`. The terminal ends above the keyboard. | a real iPhone (Safari); other phones only emulated so far |
+| **Computer** | Mac, Windows, Linux, ChromeOS, in Chrome, Edge, Safari or another Chromium browser. Off Apple keyboards the page's keys are Alt Shift ones, and Ctrl Shift C / V copy and paste. | Chrome on a Mac; a Windows keyboard emulated |
+| **Firefox** | Not yet: it loads the page and runs mosh, but offers WebRTC no address on the Tailscale interface, so it reaches a relay only on a network they share, such as the same LAN, with `ice_nets` open to it. | Firefox on a Mac |
+
+Every device needs Tailscale, signed in to the same tailnet as the relay.
 
 ## How it works
 
@@ -126,7 +149,7 @@ datagrams to a small relay, which forwards them to an unmodified `mosh-server`.
 
    <img alt="On a Mac terminal, curl downloads install-relay.sh and bash runs it: it downloads and checks the relay, writes its config, installs the service and prints the page's address." src="docs/images/install-1-relay.gif" width="100%">
 
-2. **Open its address** on the iPad, in Safari or any browser on your tailnet. (<a href="docs/images/install-2-open.mp4">video</a>)
+2. **Open its address** on your iPad, phone or computer, in any browser but Firefox ([devices](#devices-and-browsers)). (<a href="docs/images/install-2-open.mp4">video</a>)
 
    <img alt="On an iPad, Safari opens the address; the webmosh prompt appears and hosts lists the Mac." src="docs/images/install-2-open.gif" width="100%">
 
@@ -260,7 +283,7 @@ Read this before running it. The relay is a remote shell service.
 | `default_target` | |
 | `frame_ancestors` | origins that may embed the page in an iframe and use the hosts API |
 | `lang` | `en` (default) or `zh`: the page's and the relay's own messages |
-| `page` | the look, served to the page as `/site.json`: `theme` (an xterm.js theme laid over the default, Tomorrow Night) and `terminal` (xterm.js options such as `lineHeight`, `cursorStyle`) |
+| `page` | served to the page as `/site.json`: `theme` (an xterm.js theme laid over the default, Tomorrow Night), `terminal` (xterm.js options such as `lineHeight`, `cursorStyle`) and `keyboard` (`"off"`: no on-screen keyboard or iPadOS keyboard bar until switched on, for tablets with a keyboard; phones keep theirs; each device remembers its own switch) |
 | `static_dir` | files served in place of the built-in ones (below) |
 | `ssh_from`, `hosts_scan`, `tailscale_status` | tailnet hosts: extra addresses for the key's `from=`, how often to read tailscale status (default `1m`), a status file instead (tests) |
 | `ntfy_server`, `ntfy_topic`, `hosts_page` | announce new tailnet computers on ntfy, with a link to your hosts page |
@@ -288,13 +311,14 @@ Blink Shell and Termius are good apps, and both speak mosh. webmosh is for when 
 - **No terminal app on your devices.** Any browser on your tailnet is the client, and an update happens once, on the
   relay. Each device still needs Tailscale.
 - **No SSH keys on your devices.** You get in by your Tailscale identity; only the relay holds a key to your computers,
-  limited to what `webmosh-gate` allows. A lost iPad is a device to remove from the tailnet.
+  limited to what `webmosh-gate` allows. A lost phone or iPad is a device to remove from the tailnet.
 - **Yours, and open.** No account, no subscription, no vendor's cloud: one Go binary on a computer you already have.
 
 | | Runs in | mosh | Where your SSH keys live | |
 |---|---|---|---|---|
 | webmosh | a browser on your tailnet | yes: mosh-client in WebAssembly | on your relay only | free, GPL |
 | Blink Shell | an iPhone and iPad app | yes | on each device | App Store app, GPL source |
+| mosh's own client | macOS, Linux; Windows only through WSL | yes | on each device | free, GPL |
 | Termius | iOS, Android and desktop apps | yes | on each device, or Termius's encrypted vault | free tier and subscription |
 | Chrome's Secure Shell | a Chrome extension | alpha, through Chrome's own sockets: no Safari, no iPad | on each device | free, open source |
 | ttyd, wetty, sshx | any browser | no: WebSocket, no prediction, a network change drops it | on the server | free, open source |

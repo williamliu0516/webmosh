@@ -31,7 +31,7 @@ const CTRL = {
   ' ': '\x00', '@': '\x00', '2': '\x00', '3': '\x1b', '[': '\x1b', '4': '\x1c', '\\': '\x1c', '5': '\x1d', ']': '\x1d',
   '6': '\x1e', '^': '\x1e', '~': '\x1e', '7': '\x1f', '/': '\x1f', '_': '\x1f', '8': '\x7f', '?': '\x7f',
 };
-function ctrlOf(ch) {
+export function ctrlOf(ch) {
   const lower = ch.toLowerCase();
   if (lower >= 'a' && lower <= 'z') return String.fromCharCode(lower.charCodeAt(0) - 96);
   return CTRL[ch] ?? ch;

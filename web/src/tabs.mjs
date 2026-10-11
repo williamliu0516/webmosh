@@ -6,7 +6,8 @@
 // faint + in the corner, for the pointer (Universal Control) and for touch.
 //
 // Keys: Cmd+Shift+T new tab, Cmd+Shift+W close, Cmd+Shift+[ / ] or Cmd+Shift+Left / Right previous /
-// next, Cmd+1..8 that tab, Cmd+9 the last. New and close take Shift (the user's choice): on the iPad
+// next, Cmd+1..8 that tab, Cmd+9 the last; on other keyboards Alt+Shift in place of Cmd and of Cmd+Shift (platform.mjs).
+// New and close take Shift (the user's choice): on the iPad
 // Cmd+W never reaches the page and closes the whole Kiosk app (2026-10-08), and Cmd+T moved to match.
 // keys.mjs sends nothing for any of these, so the remote loses no key. A page gets them only where the
 // browser lets it: the Kiosk app's web view does (as it does Cmd = / - / 0); Safari keeps some for
@@ -17,6 +18,7 @@
 // take Cmd+Shift+H for itself (Home Screen), as it does Cmd+W; the user asked for it anyway (2026-10-10).
 
 import { L } from './i18n.mjs';
+import { APPLE, pageModifier, pageKey, tabKey } from './platform.mjs';
 
 /**
  * The page's own action for a key (tabs, the keyboard bar), or null. By physical key (event.code), as
@@ -24,9 +26,11 @@ import { L } from './i18n.mjs';
  * @returns {null | {t: 'new' | 'close' | 'prev' | 'next' | 'kbbar' | 'ime' | 'panel' | 'pick'} | {t: 'goto', n: number}}  n = -1: the last
  */
 export function pageShortcut(e) {
-  if (e.ctrlKey && !e.metaKey && !e.altKey && e.code === 'Space') return { t: 'ime' };
-  if (!e.metaKey || e.ctrlKey || e.altKey) return null;
+  if (APPLE && e.ctrlKey && !e.metaKey && !e.altKey && e.code === 'Space') return { t: 'ime' };
+  if (!pageModifier(e)) return null;
   const c = e.code;
+  const d = /^Digit([1-9])$/.exec(c);
+  if (d && !(APPLE && e.shiftKey)) return { t: 'goto', n: d[1] === '9' ? -1 : Number(d[1]) - 1 };
   if (e.shiftKey) {
     if (c === 'KeyT') return { t: 'new' };
     if (c === 'KeyW') return { t: 'close' };
@@ -37,8 +41,6 @@ export function pageShortcut(e) {
     if (c === 'BracketRight' || c === 'ArrowRight') return { t: 'next' };
     return null;
   }
-  const d = /^Digit([1-9])$/.exec(c);
-  if (d) return { t: 'goto', n: d[1] === '9' ? -1 : Number(d[1]) - 1 };
   return null;
 }
 
@@ -54,7 +56,7 @@ export function createTabBar({ onSelect, onClose, onNew }) {
   bar.hidden = true;
   const plus = document.createElement('div');
   plus.id = 'newtab';
-  plus.title = L('New tab (Cmd+Shift+T)', '新标签（Cmd+Shift+T）');
+  plus.title = L(`New tab (${pageKey('T')})`, `新标签（${pageKey('T')}）`);
   plus.textContent = '+';
   document.body.prepend(bar);
   document.body.append(plus);
@@ -80,7 +82,7 @@ export function createTabBar({ onSelect, onClose, onNew }) {
         const x = document.createElement('span');
         x.className = 'x';
         x.textContent = '×';
-        x.title = L('Close (Cmd+Shift+W)', '关闭（Cmd+Shift+W）');
+        x.title = L(`Close (${pageKey('W')})`, `关闭（${pageKey('W')}）`);
         x.addEventListener('click', (e) => { e.stopPropagation(); onClose(tab); });
         const name = document.createElement('span');
         name.className = 'name';
@@ -96,14 +98,16 @@ export function createTabBar({ onSelect, onClose, onNew }) {
         sub.textContent = tab.title || '';
         const key = document.createElement('span');
         key.className = 'key';
-        key.textContent = i < 8 ? `⌘${i + 1}` : i === tabs.length - 1 ? '⌘9' : '';
+        const n = i < 8 ? i + 1 : i === tabs.length - 1 ? 9 : 0;
+        key.textContent = !n ? '' : APPLE ? `⌘${n}` : `Alt⇧${n}`;
+        if (n) key.title = tabKey(n);
         el.append(x, name, sub, key);
         el.addEventListener('click', () => onSelect(tab));
         bar.append(el);
       });
       const add = document.createElement('div');
       add.className = 'add';
-      add.title = L('New tab (Cmd+Shift+T)', '新标签（Cmd+Shift+T）');
+      add.title = L(`New tab (${pageKey('T')})`, `新标签（${pageKey('T')}）`);
       add.textContent = '+';
       add.addEventListener('click', onNew);
       bar.append(add);

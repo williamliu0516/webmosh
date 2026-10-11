@@ -12,6 +12,7 @@
 //     draws nothing until repaint()
 
 import { L } from './i18n.mjs';
+import { APPLE, TOUCH, pageKey as K, tabKey } from './platform.mjs';
 
 const PROMPT = '\x1b[1;32mwebmosh\x1b[0m> ';
 const COMMANDS = ['mosh', 'ssh', 'hosts', 'help', 'clear', 'exit'];
@@ -117,25 +118,29 @@ export function createPrompt({ term, hosts, onMosh, onSsh, onExit, visible = () 
           + 'hosts         list the hosts (a new computer is set up on the hosts page)\nclear         clear the screen (also Ctrl-L)\n'
           + 'exit          close this tab; the last one goes back to the panel (also Ctrl-D on an empty line)\n'
           + 'Up / Down for history, Tab completes commands and host names.\n'
-          + 'Tabs: Cmd+Shift+T new, Cmd+Shift+W close (Cmd+W closes the whole app in a kiosk), Cmd+Shift+Left / Right (or [ / ])\n'
-          + '      previous / next, Cmd+1…8 that tab, Cmd+9 the last; or click the tab bar, with one tab the + in the corner.\n'
-          + 'Panel: embedded in a panel, Cmd+Shift+H hides the terminal (tabs and connections stay); again on the panel brings it back.\n'
-          + 'Photos and files: in a session, Cmd+Shift+I picks photos or files, Cmd+V pastes a picture, or drop them in;\n'
+          + `Tabs: ${K('T')} new, ${K('W')} close${APPLE ? ' (Cmd+W closes the whole app in a kiosk)' : ''}, ${K('Left')} / Right (or [ / ])\n`
+          + `      previous / next, ${tabKey('1')}…8 that tab, ${tabKey(9)} the last; or click the tab bar, with one tab the + in the corner.\n`
+          + `Panel: embedded in a panel, ${K('H')} hides the terminal (tabs and connections stay); again on the panel brings it back.\n`
+          + `Photos and files: in a session, ${K('I')} picks photos or files, ${APPLE ? 'Cmd+V' : 'Ctrl+Shift+V'} pastes a picture, or drop them in;\n`
           + '      they go to ~/Downloads/webmosh/ on that computer and the path is pasted at the cursor (Claude Code attaches it).\n'
-          + 'Keyboard bar: the iPad\'s bar at the bottom is off by default, Cmd+Shift+K turns it on or off. Ctrl+Space switches\n'
-          + '      input sources (the bar shows for a moment; with the bar off the Globe key does nothing).',
+          + (APPLE ? '' : 'Copy and paste: Ctrl+Shift+C / Ctrl+Shift+V (a selection is copied as it is made).\n')
+          + `Keyboard: ${K('K')}${TOUCH ? ' or the keyboard button' : ''} puts the on-screen keyboard (and the iPad's keyboard bar) away\n`
+          + '      or brings it back.' + (TOUCH ? ' Under the terminal: the keys it lacks; Ctrl and Alt hold for the next key.' : '')
+          + (APPLE ? '\n      Ctrl+Space switches input sources (with the bar away, the bar shows for a moment; the Globe key does nothing).' : ''),
         'mosh 主机   用 mosh 连到主机（主机见 hosts）\n'
           + 'ssh 主机    用 ssh 连到主机：能看图片和滚动历史，页面重新加载也不断\n'
           + 'hosts       列出主机（新电脑在终端主机页设置）\nclear       清屏（也可以 Ctrl-L）\n'
           + 'exit        关掉这个标签；只剩一个时回到面板（也可以在空行按 Ctrl-D）\n'
           + '上下键翻历史，Tab 补全命令和主机名。\n'
-          + '标签：Cmd+Shift+T 新开，Cmd+Shift+W 关闭（Cmd+W 会关掉整个 app），Cmd+Shift+← / →（或 [ / ]）前后切换，Cmd+1…8 第几个，Cmd+9 最后一个；\n'
+          + `标签：${K('T')} 新开，${K('W')} 关闭${APPLE ? '（Cmd+W 会关掉整个 app）' : ''}，${K('←')} / →（或 [ / ]）前后切换，${tabKey('1')}…8 第几个，${tabKey(9)} 最后一个；\n`
           + '      也可以点上面的标签栏，只有一个标签时点角上的 +。\n'
-          + '面板：嵌在面板里时 Cmd+Shift+H 收起终端（标签和连接都留着），在面板上再按一次就回来。\n'
-          + '照片和文件：连着主机时 Cmd+Shift+I 选照片或文件，Cmd+V 粘贴剪贴板里的图片，或者直接拖进来；\n'
+          + `面板：嵌在面板里时 ${K('H')} 收起终端（标签和连接都留着），在面板上再按一次就回来。\n`
+          + `照片和文件：连着主机时 ${K('I')} 选照片或文件，${APPLE ? 'Cmd+V' : 'Ctrl+Shift+V'} 粘贴剪贴板里的图片，或者直接拖进来；\n`
           + '      文件存到那台电脑的 ~/Downloads/webmosh/，路径粘贴在光标处（Claude Code 会把它当成附图）。\n'
-          + '键盘栏：iPad 底部那条栏默认关着，Cmd+Shift+K 开或关。Ctrl+空格 切换中英文（栏会亮一下再自己关掉；\n'
-          + '      栏关着时地球仪键不起作用）。'));
+          + (APPLE ? '' : '复制和粘贴：Ctrl+Shift+C / Ctrl+Shift+V（选中的文字会自动复制）。\n')
+          + `键盘：${K('K')}${TOUCH ? ' 或键盘按钮' : ''}收起或调出屏幕键盘（和 iPad 的键盘栏）。`
+          + (TOUCH ? '终端下面一排是屏幕键盘缺的键，Ctrl 和 Alt 按一下作用于下一个键。' : '')
+          + (APPLE ? '\n      Ctrl+空格 切换中英文（键盘收起时栏会亮一下再自己关掉；这时地球仪键不起作用）。' : '')));
         break;
       case 'clear':
         write('\x1b[H\x1b[2J');

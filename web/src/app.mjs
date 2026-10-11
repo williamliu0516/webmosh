@@ -16,6 +16,8 @@ import { CHARS, encode } from './keys.mjs';
 import { createPrompt } from './prompt.mjs';
 import { fontSizeControls, showBadge } from './fontsize.mjs';
 import { createTabBar, pageShortcut } from './tabs.mjs';
+import { createKeyRow } from './keyrow.mjs';
+import { APPLE, TOUCH, PHONE } from './platform.mjs';
 import { createUploader, prepare } from './upload.mjs';
 import { DEFAULT_THEME } from './theme.mjs';
 import { L, setLang } from './i18n.mjs';
@@ -93,11 +95,13 @@ const focusTerm = () => { if (shown) term.focus(); };
 const fontSize = fontSizeControls({ term, fit }); // Cmd = / Cmd - / Cmd 0 (fontsize.mjs)
 window.webmosh.fontSize = fontSize;
 
-// iPadOS's keyboard bar: with the terminal's input focused it shows the keyboard, or with the Magic Keyboard a bar
-// (A, up, down, mic) over the bottom of the screen. inputmode="none" asks for no keyboard UI at all, which takes the bar
-// with it; keys and Pinyin still work (the input keeps the focus). Off by default (the user's ask, 2026-10-08);
-// Cmd+Shift+K turns it on and off, remembered. WebKit reloads the keyboard UI when a focused input's inputmode changes,
-// so the switch applies at once.
+// The on-screen keyboard, and iPadOS's keyboard bar: with the terminal's input focused a touch screen shows its keyboard,
+// or with the iPad's Magic Keyboard a bar (A, up, down, mic) over the bottom of the screen. inputmode="none" asks for no
+// keyboard UI at all, which takes the bar with it; keys and Pinyin still work (the input keeps the focus). On by default,
+// so a phone can type; the relay's page.keyboard "off" turns it off (the user's iPad, which has a keyboard, 2026-10-08),
+// but not on a phone: one sharing that relay showed no keyboard on a tap and the corner button went unseen (2026-10-10).
+// Cmd+Shift+K, or on a touch screen the keyboard button (keyrow.mjs), turns it on and off, remembered on the device.
+// WebKit reloads the keyboard UI when a focused input's inputmode changes, so the switch applies at once.
 //
 // Without keyboard UI iPadOS does not switch input sources either (2026-10-08: Ctrl+Space, Caps Lock and Globe all did
 // nothing with the bar off, all worked with it on), and Ctrl+Space then reaches the page instead. The user wants one
@@ -108,8 +112,8 @@ window.webmosh.fontSize = fontSize;
 // of a Pinyin composition). The remote never gets Ctrl+Space (^@); on the user's Mac it switches input sources too.
 // The Globe key cannot do this: with the bar off iPadOS never hands it to the page.
 const KBBAR_KEY = 'webmosh.keyboardBar';
-let kbBar = false;
-try { kbBar = localStorage.getItem(KBBAR_KEY) === 'on'; } catch { /* storage off */ }
+let kbBar = PHONE || site.keyboard !== 'off';
+try { const v = localStorage.getItem(KBBAR_KEY); if (v) kbBar = v === 'on'; } catch { /* storage off */ }
 let kbTemp = false;      // open only for an input source switch
 let kbTimer = 0;
 let composing = false;
@@ -124,8 +128,16 @@ function toggleKbBar() {
   kbTemp = false;
   clearTimeout(kbTimer);
   setKeyboardUI(kbBar);
-  showBadge(kbBar ? L('Keyboard bar on', '键盘栏开') : L('Keyboard bar off', '键盘栏关'));
+  keyRow?.show(kbBar);
+  fit.fit(); // the row takes the bottom rows
+  if (!TOUCH) showBadge(kbBar ? L('Keyboard bar on', '键盘栏开') : L('Keyboard bar off', '键盘栏关'));
 }
+// a touch screen: the keys its keyboard lacks under the terminal, or a button to bring the keyboard back (keyrow.mjs)
+// Bringing the keyboard back: the input loses the focus and gets it again inside the tap, since iOS raises the
+// keyboard only for a focus a tap gave (the page focuses the terminal at load too, without one).
+const keyRow = TOUCH ? createKeyRow({ term, send: (d) => input(d), onToggle: () => { toggleKbBar(); if (kbBar) { term.blur(); focusTerm(); } } }) : null;
+keyRow?.show(kbBar);
+fit.fit();
 function openForSwitch() {
   if (kbBar) return; // the bar is on: iPadOS takes Ctrl+Space itself
   kbTemp = true;
@@ -874,6 +886,7 @@ for (const type of ['pointerup', 'pointercancel']) {
 // everything typed goes through here (tests read window.webmosh.sent; ?keytest taps it)
 const inputTaps = [];
 let input = (d) => {
+  if (keyRow && !MOUSE_RE.test(d)) d = keyRow.modify(d); // a Ctrl or Alt held on the key row
   window.webmosh.sent?.push(d);
   for (const f of inputTaps) f(d);
   if (active?.session) active.session.client.input(d);
@@ -975,6 +988,19 @@ term.attachCustomKeyEventHandler((ev) => {
       return false;
     }
     return ev.code === 'KeyA' && !ev.shiftKey && !ev.altKey && !ev.ctrlKey;
+  }
+  // Other keyboards than Apple's: AltGr (Windows reports it as Ctrl+Alt) types its character, as xterm.js sends it; and
+  // Ctrl+Shift+C / Ctrl+Shift+V copy and paste, as in terminals there (Ctrl+C and Ctrl+V are the remote's). C copies
+  // xterm.js's selection, or else the last copy from the remote (copyAgain); V is left to the browser, whose paste
+  // event xterm.js takes.
+  if (!APPLE && ev.getModifierState?.('AltGraph')) return true;
+  if (!APPLE && ev.ctrlKey && ev.shiftKey && !ev.altKey && !ev.metaKey && (ev.code === 'KeyC' || ev.code === 'KeyV')) {
+    if (ev.code === 'KeyC') {
+      ev.preventDefault();
+      if (term.hasSelection()) deliverCopy(term.getSelection());
+      else copyAgain();
+    }
+    return false;
   }
   // iPad Safari (2026-10-08 keylog): Ctrl+C arrives as key "c", code KeyC but keyCode 13, which
   // xterm.js maps to Enter and sends "\r". Ctrl with any character key goes by the physical key.
@@ -1099,6 +1125,9 @@ window.visualViewport?.addEventListener('resize', () => fit.fit());
 // (the user wants the full screen), so the terminal keeps its full height, the bar floats over its bottom, and it
 // follows the visible area's top. Inside a panel the panel does that for the iframe, so here a scroll is
 // only undone; on its own (Safari) the page does it itself.
+// A touch screen's own keyboard is another matter: it covers half the screen, cursor and key row included. While it is
+// up (the visible area more than 150 px short of the page) the page takes the visible height, so the terminal ends
+// above the keyboard. Android does that itself (interactive-widget=resizes-content); iOS shrinks only the visible area.
 {
   const vv = window.visualViewport;
   const standalone = window.parent === window;
@@ -1107,6 +1136,13 @@ window.visualViewport?.addEventListener('resize', () => fit.fit());
     if (!standalone || !vv || Math.abs(vv.scale - 1) > 0.01) return; // pinch zoom pans on purpose
     const top = `${Math.max(0, vv.offsetTop)}px`;
     if (document.body.style.top !== top) Object.assign(document.body.style, { position: 'fixed', left: '0', right: '0', top });
+    const covered = document.documentElement.clientHeight - vv.height;
+    const height = TOUCH && covered > 150 ? `${Math.floor(vv.height)}px` : '';
+    if (document.body.style.height !== height) {
+      document.body.style.height = height;
+      document.body.classList.toggle('kb-up', !!height);
+      fit.fit();
+    }
   };
   window.addEventListener('scroll', pin);
   vv?.addEventListener('resize', pin);
