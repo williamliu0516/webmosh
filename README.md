@@ -294,7 +294,9 @@ Read this before running it. The relay is a remote shell service.
 
 Put a `custom.css` in `static_dir`: the page loads it after its own styles, and the relay serves the fonts and
 pictures it names from the same directory. An `@font-face` named `webmosh-mono` becomes the terminal's font
-(`scripts/build-fonts.sh` subsets a Nerd Font for it); `web/src/custom.css` shows an example. A transparent theme
+(`scripts/build-fonts.sh` subsets a Nerd Font for it); `web/src/custom.css` shows an example. The terminal draws with
+xterm's WebGL renderer, which takes no CSS `font-feature-settings`: bake a font's variants into the subset instead
+(`FEATURES="cv01 zero" scripts/build-fonts.sh ...`); `?renderer=dom` uses the DOM renderer. A transparent theme
 background (`"background": "#1d1f2100"` with `"terminal": {"allowTransparency": true}`) lets a picture behind the
 page show through the cells.
 

@@ -69,23 +69,54 @@ const images = new ImageAddon({ storageLimit: 32 });
 term.loadAddon(images);
 window.webmosh.images = images;
 term.open($('#term'));
-// DOM renderer by default. The WebGL renderer (?renderer=webgl) drew a blank screen once the
-// user's tmux status line put Nerd Font icons on it (2026-10-08, no context loss reported), which
-// is how the status bar icons "disappeared"; the DOM renderer draws them all and is fast enough here.
-// If WebGL's context is lost, fall back to DOM and redraw.
-if (new URLSearchParams(location.search).get('renderer') === 'webgl') {
+// The WebGL renderer, unless ?renderer=dom. It draws box drawing (tmux's pane borders, rules) as rectangles that fill
+// whole cells, so a border is one straight line. The DOM renderer lays each row out as text and corrects the widths with
+// letter-spacing, which comes out a little different on each row (CJK, bold): a border jagged by a device pixel or two
+// from row to row, and with a lineHeight over 1 its │ left a gap between rows (2026-10-11). The DOM renderer was the
+// default for a while because headless Chrome drew a blank WebGL screen (2026-10-08); headless Chrome and Firefox draw
+// WebGL wrong, but real browsers and Playwright's WebKit draw it right, icons and all. If the context is lost for good,
+// the DOM renderer takes over, and WebGL is tried again the next time the page is shown.
+let webgl = null;     // the WebglAddon while it draws
+let webglLost = false;
+Object.defineProperty(window.webmosh, 'renderer', { get: () => (webgl ? 'webgl' : 'dom') });
+// xterm 5.5's WebGL renderer keeps a cell's dim, italic and extended-attribute flags in its background value and draws
+// an opaque rectangle for any background value but 0, in the theme's background at full alpha: with a transparent theme
+// (a picture behind the terminal) dim and italic text sat in dark boxes. So the rectangles are drawn from a copy of the
+// render model whose backgrounds keep only their colour (mode and RGB). Still so in addon-webgl 0.20 beta.
+const BG_COLOR = 0x3ffffff;
+function keepBackgroundsClear(gl) {
+  const proto = Object.getPrototypeOf(gl._renderer?._rectangleRenderer?.value ?? {});
+  if (!proto.updateBackgrounds) { console.warn('webgl: no background renderer to patch, dim text may sit in boxes'); return; }
+  if (proto.updateBackgrounds.clearBackgrounds) return;
+  const update = proto.updateBackgrounds;
+  let cells = new Uint32Array(0);
+  proto.updateBackgrounds = function (model) {
+    if (cells.length !== model.cells.length) cells = new Uint32Array(model.cells.length);
+    cells.set(model.cells);
+    for (let i = 1; i < cells.length; i += 4) cells[i] &= BG_COLOR; // 4 values a cell, the background second
+    return update.call(this, { ...model, cells });
+  };
+  proto.updateBackgrounds.clearBackgrounds = true;
+}
+function startWebgl() {
+  webglLost = false;
   try {
     const gl = new WebglAddon();
+    term.loadAddon(gl);
+    keepBackgroundsClear(gl);
     gl.onContextLoss(() => {
-      console.warn('webgl context lost, using the DOM renderer');
+      life('webgl context lost, the DOM renderer until the page is shown again');
       gl.dispose();
+      webgl = null;
+      webglLost = true;
       term.refresh(0, term.rows - 1);
     });
-    term.loadAddon(gl);
+    webgl = gl;
   } catch (e) {
     console.warn('webgl unavailable:', e.message);
   }
 }
+if (params.get('renderer') !== 'dom') startWebgl();
 fit.fit();
 // Inside a panel the terminal takes the focus only while the panel shows it (webmosh:focus, webmosh:hide). Chrome and
 // WebKit let a hidden iframe focus itself (a tab reconnecting after a relay restart), and the panel's keys then went
@@ -1214,6 +1245,7 @@ document.addEventListener('visibilitychange', () => {
   // Date.now, not performance.now: the monotonic clock may stand still while the iPad sleeps
   life(`visible after ${hiddenAt ? Date.now() - hiddenAt : '?'} ms away, ws ${ws ? ['connecting', 'open', 'closing', 'closed'][ws.readyState] : 'none'}: ${sessionStates()}`);
   hiddenAt = 0;
+  if (webglLost) startWebgl();
   connectWS();
   for (const s of sessions()) if (s.dc?.readyState !== 'open') attach(s, 'visible');
 });
