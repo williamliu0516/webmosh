@@ -1,10 +1,13 @@
 #!/bin/sh
 # webmosh: let the relay reach this computer for the terminal's `mosh <host>` and `ssh <host>`.
 # Run as the user the terminal should log in as, from the line the hosts page shows:
-#   curl -fsSL '{{.URL}}/setup.sh?t=…' | sh
+#   curl -fsSL '{{.URL}}/setup.sh?t=…' | sh                                  a computer of the tailnet
+#   curl -fsSL '{{.URL}}/setup.sh?t=…' | ssh user@host sh | curl -sS -T - …   one off it (ViaSSH), run on a tailnet
+#                                                                            computer: the report goes back on stdout
 # It changes only this user's files:
 #   ~/.local/bin/webmosh-gate      the only thing the relay's key may run (see that file)
-#   ~/.ssh/authorized_keys         one line for the relay's key: from the relay only, no forwarding, forced to the gate
+#   ~/.ssh/authorized_keys         one line for the relay's key: from the relay only (not off the tailnet, where the
+#                                  relay's address may change), no forwarding, forced to the gate
 #                                  (a copy of the old file is kept as authorized_keys.webmosh-bak)
 # then tells the relay this user, this computer's SSH host key and where mosh-server is, and the relay tests it.
 # The relay fills in the template, its messages in the relay's language (L English Chinese).
@@ -15,11 +18,12 @@ TOKEN='{{.Token}}'
 KEY_LINE='{{.KeyLine}}'
 KEY_BODY='{{.KeyBody}}'
 
-say() { printf '%s\n' "$*"; }
-fail() { printf '{{L "webmosh setup failed: %s" "webmosh 设置失败：%s"}}\n' "$*" >&2; exit 1; }
+{{if .ViaSSH}}say() { printf '%s\n' "$*" >&2; }  # stdout is the report's way back
+{{else}}say() { printf '%s\n' "$*"; }
+{{end}}fail() { printf '{{L "webmosh setup failed: %s" "webmosh 设置失败：%s"}}\n' "$*" >&2; exit 1; }
 
-command -v curl >/dev/null 2>&1 || fail "{{L "curl is missing" "没有 curl"}}"
-[ "$(id -u)" != 0 ] || fail "{{L "run it as the user who should log in, not as root" "请用要登录的普通用户运行，不要用 root"}}"
+{{if not .ViaSSH}}command -v curl >/dev/null 2>&1 || fail "{{L "curl is missing" "没有 curl"}}"
+{{end}}[ "$(id -u)" != 0 ] || fail "{{L "run it as the user who should log in, not as root" "请用要登录的普通用户运行，不要用 root"}}"
 
 # mosh-server: in PATH, or where package managers put it (sshd gives the gate a bare PATH, so keep the full path)
 MOSH=$(command -v mosh-server 2>/dev/null || true)
@@ -59,16 +63,18 @@ for f in ${WEBMOSH_HOSTKEY_FILE:-} /etc/ssh/ssh_host_ed25519_key.pub /etc/ssh_ho
   [ -r "$f" ] && { HOSTKEY=$(cat "$f"); break; }
 done
 
-SSHD=unknown
+{{if not .ViaSSH}}SSHD=unknown
 if command -v nc >/dev/null 2>&1; then
   if nc -z -w 2 127.0.0.1 22 >/dev/null 2>&1; then SSHD=yes; else SSHD=no; fi
 fi
-
+{{end}}
 say "{{L "webmosh: wrote $GATE and ${AK} (the old file is kept as authorized_keys.webmosh-bak)" "webmosh: 已写好 $GATE 和 ${AK}（旧文件备份为 authorized_keys.webmosh-bak）"}}"
 [ -n "$MOSH" ] && say "{{L "webmosh: mosh-server is $MOSH" "webmosh: mosh-server 在 $MOSH"}}" \
   || say "{{L "webmosh: mosh is not installed here (ssh works, mosh does not)" "webmosh: 这台电脑没装 mosh（ssh 可以用，mosh 不行）"}}"
 
-RESULT=$(curl -fsS -X POST "$RELAY/setup/report?t=$TOKEN" \
+{{if .ViaSSH}}# the report, through the ssh that brought this script, to the curl that puts it to the relay
+printf 'user=%s\nshell=%s\nsystem=%s\nmosh_server=%s\nhost_key=%s\n' "$(id -un)" "${SHELL:-}" "$(uname -s)" "$MOSH" "$HOSTKEY"
+{{else}}RESULT=$(curl -fsS -X POST "$RELAY/setup/report?t=$TOKEN" \
   --data-urlencode "user=$(id -un)" \
   --data-urlencode "shell=${SHELL:-}" \
   --data-urlencode "system=$(uname -s)" \
@@ -76,3 +82,4 @@ RESULT=$(curl -fsS -X POST "$RELAY/setup/report?t=$TOKEN" \
   --data-urlencode "host_key=$HOSTKEY" \
   --data-urlencode "sshd=$SSHD") || fail "{{L "cannot reach the relay at ${RELAY} (is this computer on the tailnet?)" "连不上中继 ${RELAY}（这台电脑在 tailnet 上吗？）"}}"
 say "$RESULT"
+{{end}}

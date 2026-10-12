@@ -67,6 +67,72 @@
   html.embedded #kbtoggle { right: calc(90px + env(safe-area-inset-right)); }
   body.has-tabs #kbtoggle { right: calc(10px + env(safe-area-inset-right)); }
   html.embedded body.has-tabs #kbtoggle { right: calc(50px + env(safe-area-inset-right)); }
+  /* the hosts page (hosts.mjs): a card over the terminal, the whole screen on a phone */
+  #hosts { position: fixed; inset: 0; z-index: 20; display: grid; place-items: start center; overflow-y: auto; -webkit-overflow-scrolling: touch;
+    padding: max(28px, env(safe-area-inset-top)) max(16px, env(safe-area-inset-right)) max(28px, env(safe-area-inset-bottom)) max(16px, env(safe-area-inset-left));
+    background: rgba(0, 0, 0, .5); -webkit-backdrop-filter: blur(10px); backdrop-filter: blur(10px);
+    font: 13px/1.45 -apple-system, system-ui, sans-serif; color: var(--fg); }
+  #hosts .card { width: 100%; max-width: 720px; box-sizing: border-box; padding: 18px 20px 20px; border-radius: 14px; outline: none;
+    background: var(--bg); border: 1px solid rgba(255, 255, 255, .1); box-shadow: 0 24px 64px rgba(0, 0, 0, .5); }
+  #hosts .head { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
+  #hosts h2 { margin: 0; font-size: 17px; font-weight: 650; }
+  #hosts .sub { margin-top: 2px; opacity: .6; }
+  #hosts h3 { margin: 20px 0 4px; font-size: 11px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; opacity: .5; }
+  #hosts .status:not(:empty) { margin-top: 12px; padding: 8px 10px; border-radius: 8px; background: rgba(224, 100, 90, .15); color: #f2a59d; overflow-wrap: anywhere; }
+  #hosts .row { padding: 11px 0; border-top: 1px solid rgba(255, 255, 255, .07); }
+  #hosts .top { display: flex; align-items: center; gap: 6px 12px; flex-wrap: wrap; }
+  #hosts .name { display: flex; align-items: center; gap: 6px; min-width: 0; }
+  #hosts .name b { font-size: 14px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  #hosts .badge { padding: 0 5px; border-radius: 4px; font: 600 10px/16px -apple-system, system-ui, sans-serif; background: #d9a33b; color: #1d1f21; }
+  #hosts .state { display: flex; align-items: center; gap: 6px; white-space: nowrap; opacity: .75; }
+  #hosts .dot { width: 7px; height: 7px; border-radius: 50%; background: rgba(255, 255, 255, .35); }
+  #hosts .dot.ok { background: #6cc070; }
+  #hosts .dot.warn { background: #d9a33b; }
+  #hosts .dot.bad { background: #e0645a; }
+  #hosts .dot.info { background: #5aa0e0; }
+  #hosts .acts { display: flex; gap: 6px; flex-wrap: wrap; margin-left: auto; }
+  #hosts .meta { margin-top: 3px; opacity: .65; overflow-wrap: anywhere; }
+  #hosts .meta b { font-weight: 600; }
+  #hosts code { font: 12px "webmosh-mono", ui-monospace, Menlo, monospace; padding: 1px 5px; border-radius: 4px; background: rgba(255, 255, 255, .08); }
+  #hosts .err { margin-top: 6px; color: #f2a59d; overflow-wrap: anywhere; }
+  #hosts .cmd { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-top: 8px; }
+  #hosts .cmd code { flex: 1 1 260px; display: block; padding: 8px 10px; border-radius: 8px; overflow-wrap: anywhere; user-select: all; -webkit-user-select: all; }
+  #hosts .until { font-size: 12px; opacity: .55; }
+  #hosts .note { margin: 6px 0 0; font-size: 12px; opacity: .6; }
+  #hosts .foot { margin-top: 20px; }
+  #hosts .notice { margin-top: 12px; padding: 10px 12px; border-radius: 10px; background: rgba(255, 255, 255, .06); }
+  #hosts .notice p { margin: 0; }
+  #hosts .notice > .btn { margin-top: 8px; }
+  #hosts .edit { margin-top: 10px; padding: 12px; border-radius: 10px; background: rgba(255, 255, 255, .04); }
+  #hosts .fields { display: grid; grid-template-columns: 1fr 1.4fr 96px; gap: 10px; }
+  #hosts label { display: flex; flex-direction: column; gap: 4px; font-size: 11px; opacity: .85; }
+  /* 16px: iOS zooms the page into a smaller input */
+  #hosts input { min-width: 0; padding: 6px 8px; border-radius: 7px; border: 1px solid rgba(255, 255, 255, .12); background: rgba(255, 255, 255, .07);
+    color: var(--fg); font: 16px -apple-system, system-ui, sans-serif; }
+  #hosts input:focus { outline: none; border-color: rgba(255, 255, 255, .4); }
+  #hosts .edit .acts { margin: 10px 0 0; justify-content: flex-start; }
+  #hosts .btn { height: 30px; padding: 0 12px; border: 0; border-radius: 7px; background: rgba(255, 255, 255, .1); color: var(--fg);
+    font: 500 13px -apple-system, system-ui, sans-serif; white-space: nowrap; cursor: pointer; -webkit-tap-highlight-color: transparent; }
+  #hosts .btn:hover { background: rgba(255, 255, 255, .16); }
+  #hosts .btn.primary { background: var(--fg); color: var(--bg); }
+  #hosts .btn.primary:hover { opacity: .88; }
+  #hosts .btn.ghost { background: transparent; }
+  #hosts .btn.ghost:hover { background: rgba(255, 255, 255, .1); }
+  #hosts .btn.danger { background: #c9473d; color: #fff; }
+  #hosts .btn:disabled { opacity: .45; cursor: default; }
+  #hosts .close { width: 32px; padding: 0; font-size: 22px; font-weight: 300; line-height: 1; }
+  #hosts .more { width: 30px; padding: 0; display: grid; place-items: center; }
+  #hosts .more svg { width: 16px; height: 16px; transition: transform .15s; }
+  #hosts .more.open svg { transform: rotate(180deg); }
+  #hosts .gone .row { opacity: .6; }
+  #hosts .fields.two { grid-template-columns: 1.6fr 1fr; }
+  #hosts label.address { grid-column: 1 / -1; }
+  @media (max-width: 600px) {
+    #hosts { padding: 0; place-items: stretch; }
+    #hosts .card { max-width: none; min-height: 100%; border: 0; border-radius: 0;
+      padding: max(16px, env(safe-area-inset-top)) max(16px, env(safe-area-inset-right)) max(20px, env(safe-area-inset-bottom)) max(16px, env(safe-area-inset-left)); }
+    #hosts .fields, #hosts .fields.two { grid-template-columns: 1fr; }
+  }
   [hidden] { display: none !important; }
   .wm-hide-comp .xterm .composition-view { display: none !important; }
 </style>

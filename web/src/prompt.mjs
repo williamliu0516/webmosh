@@ -2,11 +2,12 @@
 // and takes a few commands; `mosh <host>` then runs mosh from this page (the WASM client) straight
 // to that host's mosh-server, with the relay only forwarding datagrams. `ssh <host>` is a terminal
 // the relay holds (relay/pty.go): images and scrollback, and it survives a reload. The hosts are the
-// relay's targets and the tailnet computers set up on the hosts page.
+// relay's targets and the computers set up on the hosts page (`setup`, hosts.mjs): the tailnet's, and others by address.
 //
-// createPrompt({ term, hosts, onMosh, onSsh, onExit, visible }) -> { show(), hide(), repaint(), handle(data), active }
+// createPrompt({ term, hosts, onMosh, onSsh, onSetup, onExit, visible }) -> { show(), hide(), repaint(), handle(data), active }
 //   hosts(): [{ id, name, aliases, mosh, ssh }] from the relay (hello, then 'hosts' updates)
 //   onMosh(id, name) / onSsh(id, name): start a session (name as typed); the prompt is inactive until show()
+//   onSetup(): `setup`, the hosts page
 //   onExit(): `exit` / Ctrl-D on an empty line (closes the tab, or the panel hides the terminal)
 //   visible(): whether this prompt's tab is on screen (tabs.mjs); a hidden one keeps its state and
 //     draws nothing until repaint()
@@ -15,7 +16,7 @@ import { L } from './i18n.mjs';
 import { APPLE, TOUCH, pageKey as K, tabKey } from './platform.mjs';
 
 const PROMPT = '\x1b[1;32mwebmosh\x1b[0m> ';
-const COMMANDS = ['mosh', 'ssh', 'hosts', 'help', 'clear', 'exit'];
+const COMMANDS = ['mosh', 'ssh', 'hosts', 'setup', 'help', 'clear', 'exit'];
 const HISTORY_KEY = 'webmosh.history';
 const HISTORY_MAX = 200;
 
@@ -23,7 +24,7 @@ const HISTORY_MAX = 200;
 // the remote may have turned on the mouse or bracketed paste): back to plain for the prompt.
 const RESET_MODES = '\x1b[0m\x1b[?1l\x1b[?25h\x1b[?1000l\x1b[?1002l\x1b[?1003l\x1b[?1006l\x1b[?2004l\x1b[?1004l';
 
-export function createPrompt({ term, hosts, onMosh, onSsh, onExit, visible = () => true }) {
+export function createPrompt({ term, hosts, onMosh, onSsh, onSetup, onExit, visible = () => true }) {
   let line = '';
   let active = false;
   let notice = ''; // the last show() message, drawn again by repaint()
@@ -98,10 +99,10 @@ export function createPrompt({ term, hosts, onMosh, onSsh, onExit, visible = () 
         const name = arg ? arg.replace(/^[^@]*@/, '') : '';
         const h = name && find(name, 'ssh');
         if (!arg) out(L('Usage: ssh <host>. The hosts: hosts.', '用法：ssh 主机。主机见 hosts。'));
-        else if (!h && find(name, 'mosh')) out(L(`${name} takes mosh only (its key may only start mosh-server). Set it up on the hosts page for ssh.`,
-          `${name} 只能 mosh（它的密钥只许启动 mosh-server）。在终端主机页设置它，ssh 就能用。`));
-        else if (!h) out(L(`No host called ${name}. The hosts:\n${hostList()}\nA new computer shows up here once it is set up on the hosts page.`,
-          `没有叫 ${name} 的主机。主机：\n${hostList()}\n新电脑在终端主机页设置一次就会出现在这里。`));
+        else if (!h && find(name, 'mosh')) out(L(`${name} takes mosh only (its key may only start mosh-server). Set it up on the hosts page (setup) for ssh.`,
+          `${name} 只能 mosh（它的密钥只许启动 mosh-server）。在终端主机页（setup）设置它，ssh 就能用。`));
+        else if (!h) out(L(`No host called ${name}. The hosts:\n${hostList()}\nA new computer shows up here once it is set up on the hosts page: setup.`,
+          `没有叫 ${name} 的主机。主机：\n${hostList()}\n新电脑在终端主机页设置一次就会出现在这里：setup。`));
         else if (extra.length || arg.includes('@')) out(L('ssh here takes a host name only (the user is set on the hosts page; no options, no remote command).',
           '这里的 ssh 只接主机名（用户在终端主机页设置，选项和远端命令都不支持）。'));
         else { active = false; onSsh(name.toLowerCase(), name); return; }
@@ -110,12 +111,18 @@ export function createPrompt({ term, hosts, onMosh, onSsh, onExit, visible = () 
       case 'hosts':
       case 'ls':
         out(hostList());
+        out(L('\x1b[2mAnother computer (of the tailnet, or by its address), a name, a test: setup\x1b[0m', '\x1b[2m设置其他电脑（tailnet 上的，或按地址添加）、改名、测试：setup\x1b[0m'));
+        break;
+      case 'setup':
+        onSetup();
         break;
       case 'help':
       case '?':
         out(L('mosh <host>   connect with mosh (hosts lists them)\n'
           + 'ssh <host>    connect with ssh: images and scrollback, and it survives a page reload\n'
-          + 'hosts         list the hosts (a new computer is set up on the hosts page)\nclear         clear the screen (also Ctrl-L)\n'
+          + 'hosts         list the hosts\n'
+          + 'setup         the hosts page: set up another computer (of the tailnet, or one off it by its address), names, a test\n'
+          + 'clear         clear the screen (also Ctrl-L)\n'
           + 'exit          close this tab; the last one goes back to the panel (also Ctrl-D on an empty line)\n'
           + 'Up / Down for history, Tab completes commands and host names.\n'
           + `Tabs: ${K('T')} new, ${K('W')} close${APPLE ? ' (Cmd+W closes the whole app in a kiosk)' : ''}, ${K('Left')} / Right (or [ / ])\n`
@@ -129,7 +136,9 @@ export function createPrompt({ term, hosts, onMosh, onSsh, onExit, visible = () 
           + (APPLE ? '\n      Ctrl+Space switches input sources (with the bar away, the bar shows for a moment; the Globe key does nothing).' : ''),
         'mosh 主机   用 mosh 连到主机（主机见 hosts）\n'
           + 'ssh 主机    用 ssh 连到主机：能看图片和滚动历史，页面重新加载也不断\n'
-          + 'hosts       列出主机（新电脑在终端主机页设置）\nclear       清屏（也可以 Ctrl-L）\n'
+          + 'hosts       列出主机\n'
+          + 'setup       终端主机页：设置其他电脑（tailnet 上的，或按地址添加不在上面的）、改名、测试\n'
+          + 'clear       清屏（也可以 Ctrl-L）\n'
           + 'exit        关掉这个标签；只剩一个时回到面板（也可以在空行按 Ctrl-D）\n'
           + '上下键翻历史，Tab 补全命令和主机名。\n'
           + `标签：${K('T')} 新开，${K('W')} 关闭${APPLE ? '（Cmd+W 会关掉整个 app）' : ''}，${K('←')} / →（或 [ / ]）前后切换，${tabKey('1')}…8 第几个，${tabKey(9)} 最后一个；\n`

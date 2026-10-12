@@ -5,10 +5,13 @@
 # restrict: no port, agent or X11 forwarding, no ~/.ssh/rc; pty: a terminal for the shell. What the key can do:
 #   (no command)          an interactive login shell: the terminal's `ssh <host>`
 #   mosh-server ...       a mosh session; mosh-server runs with these fixed options, whatever was asked
-#   webmosh-end <port>    end this user's mosh-server listening on that UDP port AT THE ADDRESS THIS SSH CONNECTION
+#   webmosh-end <port> [<pid>]
+#                         end this user's mosh-server listening on that UDP port AT THE ADDRESS THIS SSH CONNECTION
 #                         REACHED (the relay, when a page's session closes; otherwise it waits out
 #                         MOSH_SERVER_NETWORK_TMOUT). mosh-server -s binds the relay's sessions to that address; other
-#                         mosh sessions (Blink, say) are bound elsewhere and may share the port number.
+#                         mosh sessions (Blink, say) are bound elsewhere and may share the port number. With a pid,
+#                         only if that is the one there: a session the relay kept after its mosh-server had gone
+#                         names a port that a newer session may have been given since.
 #   webmosh-check         report user, shell, system and mosh-server (the relay's test)
 #   webmosh-put <name>    keep stdin (a photo or file from the terminal page, at most 50 MB) as
 #                         ~/Downloads/webmosh/<name>, never over another file, and print its path
@@ -39,8 +42,13 @@ case "${SSH_ORIGINAL_COMMAND:-}" in
     fi
     ;;
   "webmosh-end "*)
-    port=${SSH_ORIGINAL_COMMAND#webmosh-end }
+    set -f
+    set -- ${SSH_ORIGINAL_COMMAND#webmosh-end }
+    port=${1:-}
+    want=${2:-}
     case "$port" in ''|*[!0-9]*) echo "webmosh-gate: bad port" >&2; exit 2 ;; esac
+    case "$want" in *[!0-9]*) echo "webmosh-gate: bad pid" >&2; exit 2 ;; esac
+    [ $# -le 2 ] || { echo "webmosh-gate: webmosh-end <port> [<pid>]" >&2; exit 2; }
     set -- ${SSH_CONNECTION:-}
     addr=${3:-}
     case "$addr" in ''|*[!0-9a-fA-F.:]*) echo "webmosh-gate: no address in SSH_CONNECTION" >&2; exit 2 ;; esac
@@ -54,12 +62,13 @@ case "${SSH_ORIGINAL_COMMAND:-}" in
       pids=$(ss -H -u -a -n -p 2>/dev/null | awk -v a="$addr:$port" -v b="[$addr]:$port" '$4 == a || $4 == b' |
         sed -n 's/.*pid=\([0-9][0-9]*\).*/\1/p')
     fi
+    other=
     for pid in $pids; do
-      case "$(ps -o comm= -p "$pid" 2>/dev/null)" in
-        *mosh-server) kill "$pid" && ended=$((ended + 1)) ;;
-      esac
+      case "$(ps -o comm= -p "$pid" 2>/dev/null)" in *mosh-server) ;; *) continue ;; esac
+      if [ -n "$want" ] && [ "$pid" != "$want" ]; then other="$other $pid"; continue; fi
+      kill "$pid" && ended=$((ended + 1))
     done
-    echo "webmosh-gate: ended $ended mosh-server(s) on udp $addr:$port"
+    echo "webmosh-gate: ended $ended mosh-server(s) on udp $addr:$port${other:+ (left pid$other: not $want)}"
     ;;
   "webmosh-put "*)
     name=${SSH_ORIGINAL_COMMAND#webmosh-put }

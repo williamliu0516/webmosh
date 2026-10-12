@@ -83,7 +83,7 @@ type Config struct {
 	SSHFrom         []string `json:"ssh_from"`         // addresses added to the relay's tailnet IPs in the key's from=
 	NtfyServer      string   `json:"ntfy_server"`      // default https://ntfy.sh
 	NtfyTopic       string   `json:"ntfy_topic"`       // a new computer on the tailnet is announced here ("" = not)
-	HostsPage       string   `json:"hosts_page"`       // the page that sets hosts up, for the notification's click
+	HostsPage       string   `json:"hosts_page"`       // the notification's link; default the page's own hosts page (/?hosts)
 	HostsScan       string   `json:"hosts_scan"`       // how often to read tailscale status; default 1m
 }
 

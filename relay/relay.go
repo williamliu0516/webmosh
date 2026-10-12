@@ -470,7 +470,7 @@ func (r *Relay) open(t *Target, kind string, cols, rows int) (*Session, error) {
 	if err != nil {
 		return nil, err
 	}
-	udp, err := net.DialUDP("udp4", nil, &net.UDPAddr{IP: ms.ip, Port: ms.port})
+	udp, err := net.DialUDP("udp", nil, &net.UDPAddr{IP: ms.ip, Port: ms.port}) // v4 or v6, as the SSH connection went
 	if err != nil {
 		return nil, err
 	}
@@ -480,8 +480,22 @@ func (r *Relay) open(t *Target, kind string, cols, rows int) (*Session, error) {
 		s.turn = r.turn.mint()
 	}
 	r.mu.Lock()
+	var stale []*Session
+	for _, o := range r.sessions {
+		if o.kind == "mosh" && o.port == s.port && o.host.Equal(s.host) {
+			stale = append(stale, o)
+		}
+	}
 	r.sessions[s.id] = s
 	r.mu.Unlock()
+	// One mosh-server per address and port: a session still on this one had a mosh-server that exited while no page
+	// was there to hear it. Forget it without ending anything: its port is this session's now, and ending it would end
+	// this one's mosh-server (2026-10-11: a dead session's 12 h ran out and took a live one with it).
+	for _, o := range stale {
+		if r.forget(o) {
+			log.Printf("session %s: forgotten, its mosh-server is gone (udp %s now belongs to session %s)", o.id, udp.RemoteAddr(), s.id)
+		}
+	}
 	r.save()
 	go s.pumpFromServer()
 	return s, nil
@@ -493,21 +507,29 @@ func (r *Relay) get(id string) *Session {
 	return r.sessions[id]
 }
 
-// drop forgets a session for good: closes its sockets and ends its mosh-server: a local one with
-// SIGTERM (the shell gets SIGHUP), a remote one through the target's webmosh-gate if it has one
-// (end_via_ssh); otherwise that mosh-server waits out MOSH_SERVER_NETWORK_TMOUT.
-func (r *Relay) drop(s *Session, why string) {
+// forget removes a session and closes its sockets, leaving its mosh-server alone; false if it was already gone.
+func (r *Relay) forget(s *Session) bool {
 	r.mu.Lock()
 	_, had := r.sessions[s.id]
 	delete(r.sessions, s.id)
 	r.mu.Unlock()
 	if !had {
-		return
+		return false
 	}
 	r.save()
 	s.close()
 	if r.turn != nil {
 		r.turn.forget(s.turn)
+	}
+	return true
+}
+
+// drop forgets a session for good and ends its mosh-server: a local one with SIGTERM (the shell gets SIGHUP), a
+// remote one through the target's webmosh-gate if it has one (end_via_ssh); otherwise that mosh-server waits out
+// MOSH_SERVER_NETWORK_TMOUT.
+func (r *Relay) drop(s *Session, why string) {
+	if !r.forget(s) {
+		return
 	}
 	if s.kind == "ssh" {
 		log.Printf("session %s: ssh %s dropped (%s)", s.id, s.target.ID, why)
@@ -520,7 +542,7 @@ func (r *Relay) drop(s *Session, why string) {
 		}
 	} else if s.target.EndViaSSH {
 		go func() {
-			out, err := endRemote(s.target, r.cfg, s.port)
+			out, err := endRemote(s.target, r.cfg, s.port, s.pid)
 			if err != nil {
 				log.Printf("session %s: ending the mosh-server on %s: %v %s", s.id, s.target.ID, err, out)
 			} else {
@@ -531,9 +553,10 @@ func (r *Relay) drop(s *Session, why string) {
 	log.Printf("session %s: %s dropped (%s), %d datagrams up, %d down%s", s.id, s.target.ID, why, s.up.Load(), s.down.Load(), ended)
 }
 
-// reap drops sessions whose page has been gone longer than the TTL.
+// reap drops sessions whose page has been gone longer than the TTL: at once (restored sessions whose time ran out
+// while no relay was running), then every minute.
 func (r *Relay) reap() {
-	for range time.Tick(time.Minute) {
+	for {
 		r.mu.Lock()
 		var old []*Session
 		for _, s := range r.sessions {
@@ -545,6 +568,7 @@ func (r *Relay) reap() {
 		for _, s := range old {
 			r.drop(s, "page gone for "+r.ttl.String())
 		}
+		time.Sleep(time.Minute)
 	}
 }
 
@@ -576,10 +600,13 @@ type savedSession struct {
 	Target  string    `json:"target"`
 	Host    string    `json:"host"`
 	Port    int       `json:"port"`
-	Key     string    `json:"key"` // the mosh session key: the file is 0600 in the relay's own state dir
-	PID     int       `json:"pid,omitempty"`
+	Key     string    `json:"key"`           // the mosh session key: the file is 0600 in the relay's own state dir
+	PID     int       `json:"pid,omitempty"` // on the target's computer
 	TURN    turnCreds `json:"turn"`
 	Created time.Time `json:"created"`
+	// when its page left (none while one is attached): a restored session's TTL runs on from there, not from the
+	// restart (2026-10-11: dead sessions came back with a fresh 12 h at every deploy and lived on for days)
+	Detached time.Time `json:"detached,omitzero"`
 }
 
 func (r *Relay) statePath() string {
@@ -598,7 +625,7 @@ func (r *Relay) save() {
 			continue
 		}
 		list = append(list, savedSession{ID: s.id, Target: s.target.ID, Host: s.host.String(), Port: s.port,
-			Key: s.key, PID: s.pid, TURN: s.turn, Created: s.created})
+			Key: s.key, PID: s.pid, TURN: s.turn, Created: s.created, Detached: s.detachedSince()})
 	}
 	r.mu.Unlock()
 	b, _ := json.MarshalIndent(list, "", "  ")
@@ -638,12 +665,16 @@ func (r *Relay) restore() {
 			log.Printf("session %s: mosh-server %d is gone, not restored", v.ID, v.PID)
 			continue
 		}
-		udp, err := net.DialUDP("udp4", nil, &net.UDPAddr{IP: ip, Port: v.Port})
+		udp, err := net.DialUDP("udp", nil, &net.UDPAddr{IP: ip, Port: v.Port})
 		if err != nil {
 			continue
 		}
-		s := &Session{id: v.ID, target: t, host: ip, port: v.Port, key: v.Key, pid: v.PID, turn: v.TURN,
-			udp: udp, created: v.Created, detachedAt: time.Now()}
+		detached := v.Detached
+		if detached.IsZero() { // a page was attached when the last relay stopped
+			detached = time.Now()
+		}
+		s := &Session{id: v.ID, kind: "mosh", target: t, host: ip, port: v.Port, key: v.Key, pid: v.PID, turn: v.TURN,
+			udp: udp, created: v.Created, detachedAt: detached}
 		if r.turn != nil && v.TURN.Username != "" {
 			r.turn.restore(v.TURN)
 		}

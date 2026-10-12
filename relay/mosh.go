@@ -2,6 +2,7 @@ package main
 
 import (
 	"bufio"
+	"bytes"
 	"fmt"
 	"io"
 	"net"
@@ -25,7 +26,7 @@ type moshServer struct {
 	ip   net.IP
 	port int
 	key  string
-	pid  int // local targets only: the relay ends this mosh-server when the page closes
+	pid  int // on the target's computer (0 if it never said): the session's own mosh-server, which the relay ends
 }
 
 // startMoshServer runs "mosh-server new" on the target, the way the mosh wrapper script does over
@@ -84,6 +85,8 @@ func startMoshServer(t *Target, cfg *Config) (*moshServer, error) {
 	if err != nil {
 		return nil, err
 	}
+	var stderr bytes.Buffer
+	sess.Stderr = &stderr
 	command := shellJoin(append([]string{serverPath, "new", "-s", "-c", "256", "-l", "LANG=" + locale}, t.Args...))
 	if err := sess.Start(command); err != nil {
 		return nil, err
@@ -113,7 +116,19 @@ func startMoshServer(t *Target, cfg *Config) (*moshServer, error) {
 	if ip == nil {
 		return nil, fmt.Errorf("remote address %q", host)
 	}
-	return &moshServer{ip: ip, port: res.port, key: res.key}, nil
+	ms := &moshServer{ip: ip, port: res.port, key: res.key}
+	// The parent prints the daemon's pid on stderr and exits right after MOSH CONNECT. Ending the session later by
+	// that pid, not just its port, leaves alone a newer mosh-server that has been given the same port (endRemote).
+	waited := make(chan error, 1)
+	go func() { waited <- sess.Wait() }()
+	select {
+	case <-waited:
+		if m := moshPID.FindStringSubmatch(stderr.String()); m != nil {
+			ms.pid, _ = strconv.Atoi(m[1])
+		}
+	case <-time.After(3 * time.Second):
+	}
+	return ms, nil
 }
 
 func dialTarget(t *Target, cfg *Config) (*ssh.Client, error) {
@@ -152,9 +167,10 @@ func algorithmsFor(keyType string) []string {
 }
 
 // endRemote asks the target's webmosh-gate to end the mosh-server listening on port at the address the
-// relay connects to (scripts/webmosh-gate). Only for targets with end_via_ssh: under a key whose forced
-// command is mosh-server itself, any SSH command would start one more mosh-server instead.
-func endRemote(t *Target, cfg *Config, port int) (string, error) {
+// relay connects to (setup/webmosh-gate), and only if it is pid when the relay knows it: a session kept after its
+// mosh-server had gone names a port a newer one may have been given since. Only for targets with end_via_ssh:
+// under a key whose forced command is mosh-server itself, any SSH command would start one more mosh-server instead.
+func endRemote(t *Target, cfg *Config, port, pid int) (string, error) {
 	client, err := dialTarget(t, cfg)
 	if err != nil {
 		return "", err
@@ -165,7 +181,14 @@ func endRemote(t *Target, cfg *Config, port int) (string, error) {
 		return "", err
 	}
 	defer sess.Close()
-	out, err := sess.CombinedOutput(fmt.Sprintf("webmosh-end %d", port))
+	command := fmt.Sprintf("webmosh-end %d", port)
+	if pid > 0 {
+		command += fmt.Sprintf(" %d", pid)
+	}
+	out, err := sess.CombinedOutput(command)
+	if err != nil && strings.Contains(string(out), "bad port") {
+		out = append(out, " (a webmosh-gate from before pids: run the computer's setup line again)"...)
+	}
 	return strings.TrimSpace(string(out)), err
 }
 

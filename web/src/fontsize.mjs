@@ -1,5 +1,7 @@
 // Cmd = / Cmd - / Cmd 0: the terminal's font size, as in Blink. Remembered in localStorage; each
-// change refits the terminal, so mosh (and tmux on the far end) get the new size.
+// change refits the terminal, so mosh (and tmux on the far end) get the new size. The default (Cmd 0) is the size the
+// terminal starts with: the deployment's page.terminal.fontSize, else app.mjs's 15. Back at it, nothing is stored, so
+// a later change of the deployment's size reaches the device.
 //
 // A window capture listener: it runs before xterm's own key handling (app.mjs, keys.mjs), so these
 // three never reach the remote, and preventDefault keeps Safari from zooming the page where Safari
@@ -10,7 +12,6 @@ import { L } from './i18n.mjs';
 import { APPLE } from './platform.mjs';
 
 const KEY = 'webmosh.fontSize';
-export const DEFAULT_SIZE = 15;
 const MIN = 9;
 const MAX = 36;
 
@@ -31,6 +32,7 @@ export function showBadge(text, ms = 900) {
 }
 
 export function fontSizeControls({ term, fit }) {
+  const DEFAULT_SIZE = clamp(term.options.fontSize);
   let size = DEFAULT_SIZE;
   try { size = clamp(Number(localStorage.getItem(KEY)) || DEFAULT_SIZE); } catch { /* storage off */ }
 
@@ -46,7 +48,10 @@ export function fontSizeControls({ term, fit }) {
     next = clamp(next);
     if (next === size) { show(); return; }
     size = next;
-    try { localStorage.setItem(KEY, String(size)); } catch { /* storage off */ }
+    try {
+      if (size === DEFAULT_SIZE) localStorage.removeItem(KEY);
+      else localStorage.setItem(KEY, String(size));
+    } catch { /* storage off */ }
     apply(true);
   }
 

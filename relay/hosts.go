@@ -1,7 +1,8 @@
 package main
 
-// Computers on the tailnet as terminal hosts: a hosts page (the embedding panel's) lists them, sets one up with a line the
-// user runs on it (setup/setup.sh), and from then on the page's prompt takes `mosh <name>` and `ssh <name>`.
+// Computers on the tailnet as terminal hosts: the page's hosts page (web/src/hosts.mjs, the prompt's `setup`; or an
+// embedding panel's own) lists them, sets one up with a line the user runs on it (setup/setup.sh), and from then on the
+// page's prompt takes `mosh <name>` and `ssh <name>`.
 //
 // Discovery: `tailscale status --json` every minute. A computer (Linux, macOS) the relay has not seen before is
 // added as "new", and after the first scan a new one is announced on ntfy.
@@ -10,6 +11,12 @@ package main
 // line, from the relay's addresses only, `restrict,pty`, forced to the gate. The setup script reports the
 // computer's SSH host key, which the relay pins (no trust on first use), the user, and where mosh-server is;
 // the relay then logs in and runs `webmosh-check` to prove it works.
+//
+// Off the tailnet (kind "wan"): a computer added on the hosts page by its address, such as a VPS. It cannot reach
+// the relay, so its setup line is run on a tailnet computer that can ssh to it: the script goes there through the
+// user's own ssh (whose known_hosts vouches for the host key it reports), and its report comes back on stdout through
+// the same pipe, to a curl that hands it to the relay. Its key line has no from=: the relay reaches it from the
+// relay's public address, which a home connection changes.
 
 import (
 	"bufio"
@@ -23,11 +30,13 @@ import (
 	"log"
 	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"regexp"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"text/template"
@@ -42,13 +51,14 @@ var setupFS embed.FS
 const tokenTTL = 30 * time.Minute
 
 type Host struct {
-	Node      string    `json:"node"`              // Tailscale's stable node ID
+	Node      string    `json:"node"`              // Tailscale's stable node ID; "wan-<hex>" for a wan host
+	Kind      string    `json:"kind,omitempty"`    // "" = a computer of the tailnet; "wan" = added by its address
 	Name      string    `json:"name"`              // what `mosh <name>` / `ssh <name>` take; unique among hosts and targets
 	Aliases   []string  `json:"aliases,omitempty"` // other names for it
-	Display   string    `json:"display"`           // Tailscale's host name ("Ada的MacBook Pro")
+	Display   string    `json:"display"`           // Tailscale's host name ("Ada的MacBook Pro"); a wan host's address
 	DNSName   string    `json:"dns_name"`
 	OS        string    `json:"os"`
-	IP        string    `json:"ip"`             // tailnet IPv4: SSH and mosh's UDP go here
+	IP        string    `json:"ip"`             // tailnet IPv4, or a wan host's address (a name or an IP): SSH and mosh's UDP go here
 	Port      int       `json:"port,omitempty"` // sshd; 0 = 22
 	Online    bool      `json:"online"`
 	LastSeen  time.Time `json:"last_seen"`
@@ -276,7 +286,7 @@ func (hs *Hosts) scan() error {
 		}
 	}
 	for id, h := range hs.byNode {
-		if !seen[id] && !h.Gone {
+		if h.Kind == "" && !seen[id] && !h.Gone {
 			h.Gone, h.Online, changed = true, false, true
 		}
 	}
@@ -474,12 +484,135 @@ func (hs *Hosts) setupCommand(node string) (string, error) {
 	if h == nil {
 		return "", fmt.Errorf("%s", L("no such computer", "没有这台电脑"))
 	}
+	hs.issueLocked(h)
+	hs.save()
+	return hs.lineLocked(h), nil
+}
+
+// issueLocked gives h a new setup token (its line works for tokenTTL)
+func (hs *Hosts) issueLocked(h *Host) {
 	h.token, h.tokenExpiry = newToken(), time.Now().Add(tokenTTL)
 	if h.State != "ready" {
 		h.State, h.Error = "pending", ""
 	}
+}
+
+// add: a computer off the tailnet by the address the user gave, "[user@]host[:port]", with a setup line at once
+func (hs *Hosts) add(address, name string) (string, error) {
+	user, host, port, err := parseAddress(strings.TrimSpace(address))
+	if err != nil {
+		return "", err
+	}
+	name = strings.ToLower(strings.TrimSpace(name))
+	if name == "" {
+		if net.ParseIP(host) != nil {
+			return "", fmt.Errorf("%s", L("give it a name: its address is an IP", "给它起个名字：它的地址是 IP"))
+		}
+		name = labelRE.ReplaceAllString(strings.ToLower(strings.SplitN(host, ".", 2)[0]), "-")
+	}
+	hs.mu.Lock()
+	defer hs.mu.Unlock()
+	for _, o := range hs.byNode {
+		if o.Kind == "wan" && o.IP == host && o.Port == port {
+			return "", fmt.Errorf(L("%s is on the list already, as %s", "%s 已经在列表里了，叫 %s"), host, o.Name)
+		}
+	}
+	h := &Host{Node: "wan-" + newToken()[:12], Kind: "wan", Display: host, IP: host, Port: port, User: user,
+		FirstSeen: time.Now(), State: "new"}
+	if err := hs.nameErrorLocked(name, h); err != nil {
+		return "", err
+	}
+	h.Name = name
+	hs.byNode[h.Node] = h
+	hs.issueLocked(h)
 	hs.save()
-	return fmt.Sprintf("curl -fsSL '%s/setup.sh?t=%s' | sh", hs.r.cfg.Origin, h.token), nil
+	return h.Node, nil
+}
+
+var (
+	userRE     = regexp.MustCompile(`^[A-Za-z0-9._-]{1,64}$`)
+	hostnameRE = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9-]{0,62}(\.[A-Za-z0-9][A-Za-z0-9-]{0,62})*\.?$`)
+	tailnetIPs = []*net.IPNet{mustCIDR("100.64.0.0/10"), mustCIDR("fd7a:115c:a1e0::/48")}
+)
+
+func mustCIDR(s string) *net.IPNet {
+	_, n, err := net.ParseCIDR(s)
+	if err != nil {
+		panic(err)
+	}
+	return n
+}
+
+// parseAddress reads "[user@]host[:port]": host a DNS name, an IPv4 address or an IPv6 one (in brackets when a port
+// follows); port 22 comes back as 0, like a tailnet host's. The parts go into the setup line's ssh command, so
+// nothing else gets through: no option ("-o…"), no space, no quote.
+func parseAddress(s string) (user, host string, port int, err error) {
+	bad := fmt.Errorf(L("not an address: %q (host, user@host or user@host:port)", "不是地址：%q（主机、用户@主机 或 用户@主机:端口）"), s)
+	if u, rest, ok := strings.Cut(s, "@"); ok {
+		if !userRE.MatchString(u) || strings.HasPrefix(u, "-") {
+			return "", "", 0, bad
+		}
+		user, s = u, rest
+	}
+	host, portText := s, ""
+	switch {
+	case strings.HasPrefix(s, "["): // [v6] or [v6]:port
+		if h, p, e := net.SplitHostPort(s); e == nil {
+			host, portText = h, p
+		} else if strings.HasSuffix(s, "]") {
+			host = s[1 : len(s)-1]
+		} else {
+			return "", "", 0, bad
+		}
+		if !strings.Contains(host, ":") {
+			return "", "", 0, bad
+		}
+	case strings.Count(s, ":") == 1:
+		host, portText, _ = strings.Cut(s, ":")
+	}
+	if portText != "" {
+		if port, err = strconv.Atoi(portText); err != nil || port < 1 || port > 65535 {
+			return "", "", 0, bad
+		}
+		if port == 22 {
+			port = 0
+		}
+	}
+	tailnet := fmt.Errorf(L("%s is on the tailnet: that computer shows up among the tailnet's computers by itself", "%s 在 tailnet 上：那台电脑会自己出现在「tailnet 上的电脑」里"), host)
+	if ip := net.ParseIP(host); ip != nil {
+		for _, n := range tailnetIPs {
+			if n.Contains(ip) {
+				return "", "", 0, tailnet
+			}
+		}
+		return user, ip.String(), port, nil
+	}
+	if !hostnameRE.MatchString(host) {
+		return "", "", 0, bad
+	}
+	if strings.HasSuffix(strings.TrimSuffix(strings.ToLower(host), "."), ".ts.net") {
+		return "", "", 0, tailnet
+	}
+	return user, host, port, nil
+}
+
+// lineLocked: the setup line for h's token. A tailnet computer runs it itself; a wan host's is run on a tailnet
+// computer that can ssh to it: the script goes through that ssh, its report comes back the same way (on stdout) and
+// curl -T puts it to the relay (no -f, so the relay's answer is printed even when it is an error).
+func (hs *Hosts) lineLocked(h *Host) string {
+	script := fmt.Sprintf("curl -fsSL '%s/setup.sh?t=%s'", hs.r.cfg.Origin, h.token)
+	if h.Kind != "wan" {
+		return script + " | sh"
+	}
+	ssh := "ssh"
+	if h.Port != 0 && h.Port != 22 {
+		ssh += fmt.Sprintf(" -p %d", h.Port)
+	}
+	login := h.IP
+	if h.User != "" {
+		login = h.User + "@" + login
+	}
+	return fmt.Sprintf("%s | %s %s sh | curl -sS -T - '%s/setup/report?t=%s'", script, ssh, login, hs.r.cfg.Origin, h.token)
 }
 
 func (hs *Hosts) byToken(t string) *Host {
@@ -514,6 +647,11 @@ func keyComment() string {
 	return "webmosh-relay@" + name
 }
 
+// undoLine, run on a computer, takes the relay's key and gate off it again
+func undoLine() string {
+	return "sed -i.bak '/" + keyComment() + "/d' ~/.ssh/authorized_keys && rm -f ~/.local/bin/webmosh-gate"
+}
+
 func (hs *Hosts) serveScript(w http.ResponseWriter, req *http.Request) {
 	hs.mu.Lock()
 	h := hs.byToken(req.URL.Query().Get("t"))
@@ -528,7 +666,11 @@ func (hs *Hosts) serveScript(w http.ResponseWriter, req *http.Request) {
 		return
 	}
 	keyBody := strings.Fields(pub)[1]
-	keyLine := fmt.Sprintf(`from="%s",restrict,pty,command="@GATE@" %s %s`, hs.fromList(), strings.Join(strings.Fields(pub)[:2], " "), keyComment())
+	from := fmt.Sprintf(`from="%s",`, hs.fromList())
+	if h.Kind == "wan" { // reached from the relay's public address, which may change
+		from = ""
+	}
+	keyLine := fmt.Sprintf(`%srestrict,pty,command="@GATE@" %s %s`, from, strings.Join(strings.Fields(pub)[:2], " "), keyComment())
 	script, _ := setupFS.ReadFile("setup/setup.sh")
 	gate, _ := setupFS.ReadFile("setup/webmosh-gate")
 	tmpl, err := template.New("setup").Funcs(template.FuncMap{"L": L}).Parse(string(script))
@@ -537,22 +679,43 @@ func (hs *Hosts) serveScript(w http.ResponseWriter, req *http.Request) {
 		return
 	}
 	var buf bytes.Buffer
-	tmpl.Execute(&buf, map[string]string{"URL": hs.r.cfg.Origin, "Token": req.URL.Query().Get("t"),
-		"KeyLine": keyLine, "KeyBody": keyBody, "Gate": string(gate)})
+	tmpl.Execute(&buf, map[string]any{"URL": hs.r.cfg.Origin, "Token": req.URL.Query().Get("t"),
+		"KeyLine": keyLine, "KeyBody": keyBody, "Gate": string(gate), "ViaSSH": h.Kind == "wan"})
 	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 	w.Header().Set("Cache-Control", "no-store")
 	w.Write(buf.Bytes())
 }
 
 // serveReport: the setup script's report from the computer; the relay then tests the login and answers in words.
+// A tailnet computer POSTs a form; a wan host's report is PUT by the curl at the end of its setup line: the script's
+// stdout, key=value lines, through the user's ssh (lines that are not the report's, from a chatty shell rc, are
+// skipped).
 func (hs *Hosts) serveReport(w http.ResponseWriter, req *http.Request) {
-	if req.Method != http.MethodPost {
-		http.Error(w, "POST", http.StatusMethodNotAllowed)
-		return
-	}
 	req.Body = http.MaxBytesReader(w, req.Body, 16<<10)
-	if err := req.ParseForm(); err != nil {
-		http.Error(w, "bad form", http.StatusBadRequest)
+	var f url.Values
+	switch req.Method {
+	case http.MethodPost:
+		if err := req.ParseForm(); err != nil {
+			http.Error(w, "bad form", http.StatusBadRequest)
+			return
+		}
+		f = req.PostForm
+	case http.MethodPut:
+		b, err := io.ReadAll(req.Body)
+		if err != nil {
+			http.Error(w, "too long", http.StatusBadRequest)
+			return
+		}
+		f = url.Values{}
+		for _, line := range strings.Split(string(b), "\n") {
+			k, v, _ := strings.Cut(strings.TrimRight(line, "\r"), "=")
+			switch k {
+			case "user", "shell", "system", "mosh_server", "host_key":
+				f.Set(k, v)
+			}
+		}
+	default:
+		http.Error(w, "POST or PUT", http.StatusMethodNotAllowed)
 		return
 	}
 	hs.mu.Lock()
@@ -562,9 +725,14 @@ func (hs *Hosts) serveReport(w http.ResponseWriter, req *http.Request) {
 		http.Error(w, "webmosh: "+L("this setup line has expired; get a new one on the hosts page", "这行设置命令已过期，请在终端主机页重新获取"), http.StatusForbidden)
 		return
 	}
-	f := req.PostForm
+	if req.Method == http.MethodPut && f.Get("user") == "" { // the ssh or the script failed: nothing came back
+		hs.mu.Unlock()
+		http.Error(w, "webmosh: "+L("the setup did not run through on the computer (its messages are above); the line can be run again until it expires",
+			"设置没有在那台电脑上跑完（上面有它的提示）；这行命令过期前可以再运行"), http.StatusBadRequest)
+		return
+	}
 	user := f.Get("user")
-	if !regexp.MustCompile(`^[A-Za-z0-9._-]{1,64}$`).MatchString(user) {
+	if !userRE.MatchString(user) {
 		hs.mu.Unlock()
 		http.Error(w, "webmosh: "+L("bad user name", "用户名不对"), http.StatusBadRequest)
 		return
@@ -669,7 +837,7 @@ func explainSSH(err error) error {
 	case strings.Contains(s, "host key mismatch"):
 		return fmt.Errorf("%s", L("the SSH host key is not the one reported at setup: run the setup line again", "SSH 主机密钥和设置时报告的不一样：重新运行设置命令"))
 	case strings.Contains(s, "i/o timeout"):
-		return fmt.Errorf("%s", L("unreachable (the computer is offline or not on the tailnet)", "连不上（电脑离线或不在 tailnet 上）"))
+		return fmt.Errorf("%s", L("unreachable (the computer is offline, off the tailnet, or a firewall drops its SSH port)", "连不上（电脑离线、不在 tailnet 上，或者防火墙挡住了它的 SSH 端口）"))
 	}
 	return err
 }
@@ -706,7 +874,7 @@ func (hs *Hosts) view() []hostView {
 	for _, h := range hs.sortedLocked() {
 		v := hostView{Host: h, Shadowed: hs.shadowedLocked(h)}
 		if h.token != "" && time.Now().Before(h.tokenExpiry) {
-			v.Setup = fmt.Sprintf("curl -fsSL '%s/setup.sh?t=%s' | sh", hs.r.cfg.Origin, h.token)
+			v.Setup = hs.lineLocked(h)
 			v.SetupExpiry = h.tokenExpiry.Format(time.RFC3339)
 		}
 		out = append(out, v)
@@ -738,7 +906,7 @@ func (hs *Hosts) serveAPI(w http.ResponseWriter, req *http.Request) {
 		json.NewEncoder(w).Encode(v)
 	}
 	if req.Method == http.MethodGet && req.URL.Path == "/api/hosts" {
-		reply(map[string]any{"hosts": hs.view(), "targets": hs.r.configTargets(), "relay": hs.r.cfg.Origin})
+		reply(map[string]any{"hosts": hs.view(), "targets": hs.r.configTargets(), "relay": hs.r.cfg.Origin, "undo": undoLine()})
 		return
 	}
 	if req.Method != http.MethodPost || !hs.r.originAllowed(origin) {
@@ -751,12 +919,28 @@ func (hs *Hosts) serveAPI(w http.ResponseWriter, req *http.Request) {
 		Aliases *[]string `json:"aliases"`
 		Port    *int      `json:"port"`
 		Off     *bool     `json:"off"`
+		Address *string   `json:"address"` // add: "[user@]host[:port]"; update: a wan host's new host
 	}
 	if err := json.NewDecoder(io.LimitReader(req.Body, 8<<10)).Decode(&body); err != nil {
 		http.Error(w, "bad json", http.StatusBadRequest)
 		return
 	}
 	switch strings.TrimPrefix(req.URL.Path, "/api/hosts/") {
+	case "add": // a computer off the tailnet: {"address": "[user@]host[:port]", "name": "vps"}; its setup line comes with it
+		var address, name string
+		if body.Address != nil {
+			address = *body.Address
+		}
+		if body.Name != nil {
+			name = *body.Name
+		}
+		node, err := hs.add(address, name)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		hs.r.broadcastHosts()
+		reply(map[string]any{"hosts": hs.view(), "node": node})
 	case "setup":
 		cmd, err := hs.setupCommand(body.Node)
 		if err != nil {
@@ -769,7 +953,7 @@ func (hs *Hosts) serveAPI(w http.ResponseWriter, req *http.Request) {
 		hs.check(body.Node)
 		reply(map[string]any{"hosts": hs.view()})
 	case "update":
-		if err := hs.update(body.Node, body.Name, body.Aliases, body.Port, body.Off); err != nil {
+		if err := hs.update(body.Node, body.Name, body.Aliases, body.Port, body.Off, body.Address); err != nil {
 			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
 		}
@@ -778,17 +962,17 @@ func (hs *Hosts) serveAPI(w http.ResponseWriter, req *http.Request) {
 	case "forget":
 		hs.mu.Lock()
 		if h := hs.byNode[body.Node]; h != nil {
-			*h = Host{Node: h.Node, Name: h.Name, Display: h.Display, DNSName: h.DNSName, OS: h.OS, IP: h.IP,
-				Online: h.Online, LastSeen: h.LastSeen, FirstSeen: h.FirstSeen, Gone: h.Gone, State: "new"}
-			if h.Gone {
+			if h.Gone || h.Kind == "wan" { // nothing would find it again: it goes
 				delete(hs.byNode, body.Node)
+			} else {
+				*h = Host{Node: h.Node, Name: h.Name, Display: h.Display, DNSName: h.DNSName, OS: h.OS, IP: h.IP,
+					Online: h.Online, LastSeen: h.LastSeen, FirstSeen: h.FirstSeen, State: "new"}
 			}
 			hs.save()
 		}
 		hs.mu.Unlock()
 		hs.r.broadcastHosts()
-		reply(map[string]any{"hosts": hs.view(),
-			"undo": "sed -i.bak '/" + keyComment() + "/d' ~/.ssh/authorized_keys && rm -f ~/.local/bin/webmosh-gate"})
+		reply(map[string]any{"hosts": hs.view(), "undo": undoLine()})
 	default:
 		http.NotFound(w, req)
 	}
@@ -796,28 +980,31 @@ func (hs *Hosts) serveAPI(w http.ResponseWriter, req *http.Request) {
 
 var nameRE = regexp.MustCompile(`^[a-z0-9][a-z0-9._-]{0,31}$`)
 
-func (hs *Hosts) update(node string, name *string, aliases *[]string, port *int, off *bool) error {
+// nameErrorLocked: why h may not take the name n, or nil. A name is refused only if every protocol h has already
+// reaches someone else by it.
+func (hs *Hosts) nameErrorLocked(n string, h *Host) error {
+	if !nameRE.MatchString(n) {
+		return fmt.Errorf(L("a name takes lowercase letters, digits, dots, dashes and underscores only: %q", "名字只能用小写字母、数字、点、横线、下划线：%q"), n)
+	}
+	for _, k := range hostKinds(h) {
+		if !hs.takenLocked(n, k, h) {
+			return nil
+		}
+	}
+	if len(hostKinds(h)) == 1 {
+		return fmt.Errorf(L("there is already an ssh host called %q", "ssh 里已经有叫 %q 的主机了"), n)
+	}
+	return fmt.Errorf(L("there are already a mosh and an ssh host called %q", "mosh 和 ssh 里都已经有叫 %q 的主机了"), n)
+}
+
+func (hs *Hosts) update(node string, name *string, aliases *[]string, port *int, off *bool, address *string) error {
 	hs.mu.Lock()
 	defer hs.mu.Unlock()
 	h := hs.byNode[node]
 	if h == nil {
 		return fmt.Errorf("%s", L("no such computer", "没有这台电脑"))
 	}
-	// a name is refused only if every protocol this host has already reaches someone else by it
-	check := func(n string) error {
-		if !nameRE.MatchString(n) {
-			return fmt.Errorf(L("a name takes lowercase letters, digits, dots, dashes and underscores only: %q", "名字只能用小写字母、数字、点、横线、下划线：%q"), n)
-		}
-		for _, k := range hostKinds(h) {
-			if !hs.takenLocked(n, k, h) {
-				return nil
-			}
-		}
-		if len(hostKinds(h)) == 1 {
-			return fmt.Errorf(L("there is already an ssh host called %q", "ssh 里已经有叫 %q 的主机了"), n)
-		}
-		return fmt.Errorf(L("there are already a mosh and an ssh host called %q", "mosh 和 ssh 里都已经有叫 %q 的主机了"), n)
-	}
+	check := func(n string) error { return hs.nameErrorLocked(n, h) }
 	if name != nil {
 		if err := check(*name); err != nil {
 			return err
@@ -843,6 +1030,19 @@ func (hs *Hosts) update(node string, name *string, aliases *[]string, port *int,
 		}
 		h.Port = *port
 	}
+	if address != nil {
+		if h.Kind != "wan" {
+			return fmt.Errorf("%s", L("a tailnet computer's address comes from Tailscale", "tailnet 电脑的地址由 Tailscale 决定"))
+		}
+		user, host, p, err := parseAddress(strings.TrimSpace(*address))
+		if err != nil {
+			return err
+		}
+		if user != "" || p != 0 {
+			return fmt.Errorf("%s", L("only the host here: the SSH port has its own field, and the user comes from the setup", "这里只填主机：SSH 端口另有一栏，用户来自设置"))
+		}
+		h.IP, h.Display = host, host
+	}
 	if off != nil {
 		switch {
 		case *off:
@@ -866,10 +1066,11 @@ func (r *Relay) notify(title, message string) {
 	if server == "" {
 		server = "https://ntfy.sh"
 	}
-	body := map[string]any{"topic": r.cfg.NtfyTopic, "title": title, "message": message, "priority": 3}
-	if r.cfg.HostsPage != "" {
-		body["click"] = r.cfg.HostsPage
+	click := r.cfg.HostsPage
+	if click == "" {
+		click = strings.TrimRight(r.cfg.Origin, "/") + "/?hosts" // the page, with its hosts page open
 	}
+	body := map[string]any{"topic": r.cfg.NtfyTopic, "title": title, "message": message, "priority": 3, "click": click}
 	b, _ := json.Marshal(body)
 	go func() {
 		resp, err := http.Post(strings.TrimRight(server, "/"), "application/json", bytes.NewReader(b))

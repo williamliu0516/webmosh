@@ -24,7 +24,7 @@ type Session struct {
 	host    net.IP
 	port    int
 	key     string
-	pid     int // local mosh-server, ended with the session
+	pid     int // its mosh-server, on the target's computer: ended with the session (by SIGTERM here, or webmosh-end)
 	created time.Time
 	udp     *net.UDPConn
 	turn    turnCreds // this session's TURN login, if the relay runs TURN

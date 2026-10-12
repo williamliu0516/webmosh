@@ -19,6 +19,7 @@ import { createTabBar, pageShortcut } from './tabs.mjs';
 import { createKeyRow } from './keyrow.mjs';
 import { APPLE, TOUCH, PHONE } from './platform.mjs';
 import { createUploader, prepare } from './upload.mjs';
+import { createHostsPage } from './hosts.mjs';
 import { DEFAULT_THEME } from './theme.mjs';
 import { L, setLang } from './i18n.mjs';
 
@@ -122,7 +123,8 @@ fit.fit();
 // WebKit let a hidden iframe focus itself (a tab reconnecting after a relay restart), and the panel's keys then went
 // into the shell unseen.
 let shown = true;
-const focusTerm = () => { if (shown) term.focus(); };
+let hostsPage = null; // the hosts page over the terminal (hosts.mjs) keeps the focus while it is open
+const focusTerm = () => { if (shown && !hostsPage?.isOpen) term.focus(); };
 const fontSize = fontSizeControls({ term, fit }); // Cmd = / Cmd - / Cmd 0 (fontsize.mjs)
 window.webmosh.fontSize = fontSize;
 
@@ -308,6 +310,13 @@ function openPending() {
   open(tab, p.target, p.target, p.kind);
 }
 
+// The hosts page (hosts.mjs): the prompt's `setup`, or ?hosts in the address (the relay's ntfy link to a new computer).
+// Its ssh and mosh buttons open a tab the way the embedding panel's webmosh:open does.
+hostsPage = createHostsPage({
+  onOpen: (kind, target) => { pendingOpen = { kind, target }; openPending(); },
+  onClose: () => focusTerm(),
+});
+
 // After the relay's hello (the host list): open what restoreTabs() set up. The mosh sessions those tabs had before
 // the reload are no use to anyone now (no page can take a mosh session over): the relay ends them once the page
 // that had them is gone, also the mosh-server behind (through the host's gate, or locally).
@@ -348,6 +357,7 @@ function newTab(showPrompt = true) {
     hosts: () => targets,
     onMosh: (id, name) => open(tab, id, name, 'mosh'),
     onSsh: (id, name) => open(tab, id, name, 'ssh'),
+    onSetup: () => hostsPage.open(),
     onExit: () => {
       if (tabs.length > 1) closeTab(tab);
       else if (!leave()) term.write(`\x1b[2m${L('Not inside a panel: close the browser tab instead.', '不在面板里：关掉这个标签页即可。')}\x1b[0m\r\n`);
@@ -424,6 +434,7 @@ const uploader = createUploader({
 window.webmosh.prepare = prepare; // for tests: HEIC to JPEG
 
 function pageAction(a) {
+  if (hostsPage.isOpen && a.t !== 'ime') hostsPage.close(); // a tab or panel key goes back to the terminal
   const i = tabs.indexOf(active);
   if (a.t === 'kbbar') toggleKbBar();
   else if (a.t === 'pick') uploader.pick();
@@ -513,6 +524,7 @@ function onMessage(m) {
       break;
     case 'hosts': // a computer was set up, renamed or went away (the hosts page)
       targets = m.targets || [];
+      hostsPage.refresh();
       break;
     case 'session': {
       // m.ref: the tab that asked (the relay echoes it)
@@ -613,9 +625,9 @@ async function startSession(tab, m) {
   s.client.start();
   attach(s, 'start');
   // reopened after a reload: back into its tmux session (typed into the new shell). If that session is gone, plain
-  // `tmux` (on the Mac, attach.sh picks a free one). Typed once the shell has drawn its prompt: its output then stops
-  // for a moment (0.4 s; at most 4 s from the start). Keys typed at the very start of a session were seen lost twice
-  // in tests (a login shell still starting up), and this line must not be.
+  // `tmux`. Typed once the shell has drawn its prompt: its output then stops for a moment (0.4 s; at most 4 s from the
+  // start). Keys typed at the very start of a session were seen lost twice in tests (a login shell still starting up),
+  // and this line must not be.
   if (tab.reattach) {
     const q = tab.reattach.replace(/'/g, `'\\''`);
     tab.tmux = tab.reattach;
@@ -1332,7 +1344,7 @@ window.addEventListener('pageshow', (e) => { if (e.persisted) life('pageshow fro
 if (window.parent !== window) {
   window.addEventListener('message', (e) => {
     // the relay remembers it for this device: at its next start the panel opens the terminal again if it was on screen
-    if (e.data === 'webmosh:focus') { shown = true; term.focus(); send({ t: 'shown', shown }); }
+    if (e.data === 'webmosh:focus') { shown = true; focusTerm(); send({ t: 'shown', shown }); }
     if (e.data === 'webmosh:hide') { shown = false; term.blur(); send({ t: 'shown', shown }); }
     // the panel's hosts sheet: a new tab, connecting (frame-ancestors lets only the panel embed this page)
     if (e.data?.t === 'webmosh:open' && typeof e.data.target === 'string') {
@@ -1354,5 +1366,6 @@ if (window.parent !== window) {
 // The tabs the page had before a reload, or a first tab: the page's own prompt (prompt.mjs), like Blink's local shell;
 // with ?target= it opens that host at once instead. The relay's copy may still take their place at the first hello.
 if (keytest || autoTarget || !restoreTabs(startTabs)) newTab(!keytest && !autoTarget);
+if (params.has('hosts')) hostsPage.open();
 
 connectWS();
