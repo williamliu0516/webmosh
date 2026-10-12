@@ -54,7 +54,7 @@ compile "$ROOT/wasm/webmosh.cc" "$o" & pids+=($!)
 fail=0; for p in "${pids[@]}"; do wait "$p" || fail=1; done
 [ "$fail" = 0 ] || { echo "compile failed" >&2; exit 1; }
 
-EXPORTS='["_wm_start","_wm_input","_wm_resize","_wm_datagram","_wm_tick","_wm_repaint","_wm_shutdown","_wm_status","_wm_take_screen","_wm_take_datagram","_wm_scratch","_wm_error","_wm_since_heard","_wm_hops",'"${DEBUG:+\"_wm_debug\",}"'"_malloc","_free"]'
+EXPORTS='["_wm_start","_wm_input","_wm_resize","_wm_poke","_wm_datagram","_wm_tick","_wm_repaint","_wm_shutdown","_wm_status","_wm_take_screen","_wm_take_datagram","_wm_scratch","_wm_error","_wm_since_heard","_wm_hops",'"${DEBUG:+\"_wm_debug\",}"'"_malloc","_free"]'
 em++ "$OPT" -fwasm-exceptions -sUSE_ZLIB=1 "${objs[@]}" \
   "$B/protobuf-wasm/libprotobuf-lite.a" "$B/nettle-wasm/lib/libnettle.a" \
   -sMODULARIZE=1 -sEXPORT_ES6=1 -sEXPORT_NAME=createWebMosh -sENVIRONMENT=web,node \

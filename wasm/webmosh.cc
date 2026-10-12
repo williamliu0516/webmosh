@@ -49,11 +49,12 @@ struct Client {
   bool repaint_requested;
   bool connected_once;
   std::wstring connecting_notification;
+  int cols, rows;          /* the size last sent to the server */
 
-  Client( int cols, int rows )
-    : network( NULL ), local_framebuffer( cols, rows ), new_state( 1, 1 ), overlays(),
+  Client( int s_cols, int s_rows )
+    : network( NULL ), local_framebuffer( s_cols, s_rows ), new_state( 1, 1 ), overlays(),
       display( false ), screen(), repaint_requested( false ), connected_once( false ),
-      connecting_notification( L"Connecting..." ) {}
+      connecting_notification( L"Connecting..." ), cols( s_cols ), rows( s_rows ) {}
   ~Client() { delete network; }
 
   bool still_connecting( void ) const { return network && network->get_remote_state_num() == 0; }
@@ -243,8 +244,25 @@ EMSCRIPTEN_KEEPALIVE int wm_resize( int cols, int rows )
     Client &c = *client;
     if ( !c.network->shutdown_in_progress() ) {
       c.network->get_current_state().push_back( Parser::Resize( cols, rows ) );
+      c.cols = cols;
+      c.rows = rows;
     }
     c.overlays.get_prediction_engine().reset();
+  } );
+}
+
+/* A new link to the relay is open (the page back from the background): reach the server now, not at the next
+   heartbeat. The one due while the link was down was lost, the next is up to 3 s away, and mosh-server answers a
+   heartbeat only with its own, up to 3 s later again; one that heard nothing for 40 s sends nothing at all. A change it
+   acknowledges within 100 ms, so send one that changes nothing: the size it already has (the pty is set to the same
+   size, which signals no one). */
+EMSCRIPTEN_KEEPALIVE int wm_poke( void )
+{
+  return turn( []() {
+    Client &c = *client;
+    if ( !c.network->shutdown_in_progress() ) {
+      c.network->get_current_state().push_back( Parser::Resize( c.cols, c.rows ) );
+    }
   } );
 }
 

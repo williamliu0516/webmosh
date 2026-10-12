@@ -65,6 +65,12 @@ export class MoshClient {
     this.after(this.M._wm_resize(cols, rows));
   }
 
+  /** A new link to the relay is open: let the server hear from us now (wm_poke), not at the next heartbeat. */
+  opened() {
+    if (this.closed) return;
+    this.after(this.M._wm_poke());
+  }
+
   /** The terminal lost its contents (reset, page restored): redraw everything. */
   repaint() {
     if (this.closed) return;

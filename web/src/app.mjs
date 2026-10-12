@@ -199,7 +199,7 @@ window.webmosh.keyboardUI = () => term.textarea?.getAttribute('inputmode') !== '
 
 // Each tab is the page's prompt or one mosh session (tabs.mjs). They share the terminal: only the
 // active tab draws; the others keep running, and a switch redraws from the tab's own state.
-/** @typedef {{id: string, kind: 'mosh' | 'ssh', target: string, client: MoshClient | PtyClient, ice: RTCIceServer[], tab: Tab, pc?: RTCPeerConnection, dc?: RTCDataChannel, attaching?: boolean, attachWs?: WebSocket, attachRef?: string, closing?: boolean, released?: boolean}} Session */
+/** @typedef {{id: string, kind: 'mosh' | 'ssh', target: string, client: MoshClient | PtyClient, ice: RTCIceServer[], tab: Tab, pc?: RTCPeerConnection, dc?: RTCDataChannel, attaching?: boolean, attachWs?: WebSocket, attachRef?: string, openedAt?: number, closing?: boolean, released?: boolean}} Session */
 /** @typedef {{n: number, label: string, title: string, target: string, kind: 'mosh' | 'ssh', tmux: string, reattach?: string, resume?: string, restore?: {target: string, label: string, tmux: string, kind?: string, id?: string} | null, session: Session | null, opening: boolean, closed?: boolean, prompt: ReturnType<typeof createPrompt>}} Tab */
 /** @type {Tab[]} */
 const tabs = [];
@@ -478,6 +478,7 @@ function send(m) {
 const lifeLog = [];
 let hiddenAt = 0;
 let wsDownAt = 0;
+let wsUpAt = 0;
 function life(line) {
   lifeLog.push(`${Math.round(performance.now())} life ${line}`);
   if (lifeLog.length > 50) lifeLog.shift();
@@ -487,18 +488,34 @@ function flushLife() {
   if (ws?.readyState === WebSocket.OPEN && lifeLog.length) send({ t: 'keylog', lines: lifeLog.splice(0) });
 }
 const short = (s) => s.id.slice(0, 6);
+// A mosh session's first datagram from the server after its link opened: the screen is live again then ("Last contact"
+// goes). The wait after "open in" is mosh's, not the network's.
+function opened(s) {
+  if (s.kind === 'mosh') s.openedAt = performance.now();
+  s.client.opened?.();
+}
+function heard(s) {
+  if (!s.openedAt) return;
+  life(`${short(s)} heard the server ${Math.round(performance.now() - s.openedAt)} ms after open`);
+  s.openedAt = 0;
+}
 const sessionStates = () => sessions().map((s) => `${short(s)} ${s.kind} dc=${s.dc?.readyState || '-'} pc=${s.pc?.connectionState || '-'}`).join(', ') || 'no sessions';
 
 function connectWS() {
   if (ws && ws.readyState <= WebSocket.OPEN) return;
   ws = new WebSocket((location.protocol === 'https:' ? 'wss://' : 'ws://') + location.host + '/ws');
+  ws.onopen = () => { wsUpAt = Date.now(); };
   ws.onmessage = (e) => onMessage(JSON.parse(e.data));
   ws.onclose = (e) => {
     life(`ws closed ${e.code}${document.hidden ? ' while hidden' : ''}`);
     if (!wsDownAt) wsDownAt = Date.now();
     ws = null;
     for (const t of tabs) t.opening = false; // an open in flight died with the socket
-    setTimeout(() => { if (document.visibilityState === 'visible') connectWS(); }, 1000);
+    // A socket that was up a while died under a visible page (frozen in the background without a visibilitychange, a
+    // network that moved): straight back, the terminal waits on it. One that just came up or never did: once a second.
+    const wait = wsUpAt && Date.now() - wsUpAt > 5000 ? 0 : 1000;
+    wsUpAt = 0;
+    setTimeout(() => { if (document.visibilityState === 'visible') connectWS(); }, wait);
   };
 }
 
@@ -690,11 +707,11 @@ async function attach(s, why, force = false) {
     // mosh: unordered, no retransmits (mosh does its own); ssh: a reliable byte stream
     const dc = s.kind === 'ssh' ? pc.createDataChannel('pty') : pc.createDataChannel('mosh', { ordered: false, maxRetransmits: 0 });
     dc.binaryType = 'arraybuffer';
-    dc.onmessage = (e) => s.client.datagram(typeof e.data === 'string' ? e.data : new Uint8Array(e.data));
+    dc.onmessage = (e) => { heard(s); s.client.datagram(typeof e.data === 'string' ? e.data : new Uint8Array(e.data)); };
     dc.onopen = () => {
       rtcWorked = true;
       if (s.pc === pc) { s.attaching = false; life(`${short(s)} open in ${Math.round(performance.now() - t0)} ms (${why})`); }
-      s.client.opened?.();
+      opened(s);
     };
     dc.onclose = () => { if (s.pc === pc && !s.released) setTimeout(() => { if (s.pc === pc) attach(s, 'channel closed', true); }, 500); };
     let down = false;
@@ -745,9 +762,9 @@ function openLink(s, ch, ticket) {
     ch.connectionState = 'connected';
     s.attaching = false;
     life(`${short(s)} link open in ${Math.round(performance.now() - ch.t0)} ms (${ch.why})`);
-    s.client.opened?.();
+    opened(s);
   };
-  w.onmessage = (e) => s.client.datagram(typeof e.data === 'string' ? e.data : new Uint8Array(e.data));
+  w.onmessage = (e) => { heard(s); s.client.datagram(typeof e.data === 'string' ? e.data : new Uint8Array(e.data)); };
   w.onclose = () => {
     const was = ch.readyState;
     ch.readyState = ch.connectionState = 'closed';
