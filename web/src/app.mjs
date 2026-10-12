@@ -171,7 +171,8 @@ function toggleKbBar() {
 // a touch screen: the keys its keyboard lacks under the terminal, or a button to bring the keyboard back (keyrow.mjs)
 // Bringing the keyboard back: the input loses the focus and gets it again inside the tap, since iOS raises the
 // keyboard only for a focus a tap gave (the page focuses the terminal at load too, without one).
-const keyRow = TOUCH ? createKeyRow({ term, send: (d) => input(d), onToggle: () => { toggleKbBar(); if (kbBar) { term.blur(); focusTerm(); } } }) : null;
+const keyRow = TOUCH ? createKeyRow({ term, send: (d) => input(d), onToggle: () => { toggleKbBar(); if (kbBar) { term.blur(); focusTerm(); } },
+  onPick: () => pageAction({ t: 'pick' }) }) : null;
 keyRow?.show(kbBar);
 fit.fit();
 function openForSwitch() {
@@ -434,7 +435,7 @@ const uploader = createUploader({
   focus: focusTerm,
   log: (line) => send({ t: 'keylog', lines: [`${Math.round(performance.now())} upload ${line}`] }),
 });
-window.webmosh.prepare = prepare; // for tests: HEIC to JPEG
+window.webmosh.prepare = prepare; // for tests: HEIC to JPEG, big pictures shrunk
 
 function pageAction(a) {
   if (hostsPage.isOpen && a.t !== 'ime') hostsPage.close(); // a tab or panel key goes back to the terminal

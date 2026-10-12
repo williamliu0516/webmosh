@@ -1,13 +1,15 @@
 // Photos and files from the iPad into the terminal, for Claude Code on the Mac above all: its Ctrl+V reads the
 // clipboard of the computer it runs on, which never has the iPad's pictures. Three ways in, one way through:
-//   Cmd+Shift+I   iPadOS's picker (photo library, camera, files), several at once
+//   Cmd+Shift+I   iPadOS's picker (photo library, camera, files), several at once; on a touch screen also the
+//                 paperclip in the key row or the corner (keyrow.mjs)
 //   Cmd+V         when the clipboard holds a picture or a file (a screenshot, a photo copied in Photos); text pastes
 //                 as before
 //   drop          a photo or file dragged onto the terminal (Split View, Slide Over)
 // Each file goes to the computer the tab is connected to: the relay (POST /upload) hands it to that computer's
 // webmosh-gate, which keeps it in ~/Downloads/webmosh/ (on the relay's own computer, the relay writes it there itself). Its path is
 // then pasted at the cursor, as a file dropped on Ghostty is, and Claude Code turns a pasted image path into an
-// attached image ([Image #1]). HEIC photos become JPEG first: Claude Code reads PNG, JPEG, GIF and WebP.
+// attached image ([Image #1]). HEIC photos become JPEG first (Claude Code reads PNG, JPEG, GIF and WebP), and big
+// pictures shrink to the largest size Claude reads (prepare, below).
 
 import { L } from './i18n.mjs';
 
@@ -42,7 +44,7 @@ export function createUploader({ term, session, badge, focus, log }) {
   });
   input.addEventListener('cancel', () => { picking = null; focus(); });
 
-  /** Cmd+Shift+I. Runs inside the keydown: iPadOS opens a file picker only for a user's own key or tap. */
+  /** Cmd+Shift+I, the paperclip. Runs inside the keydown or the click: iPadOS opens a file picker only for a user's own key or tap. */
   function pick() {
     const s = session();
     log(`pick ${s ? 'session' : 'no-session'}`);
@@ -89,10 +91,12 @@ export function createUploader({ term, session, badge, focus, log }) {
         try {
           const f = await prepare(files[i]);
           if (f.blob.size > MAX) throw new Error(L(`${f.name} is over 50 MB`, `${f.name} 超过 50 MB`));
+          const t0 = performance.now();
           const r = await fetch(`/upload?session=${encodeURIComponent(s.id)}&name=${encodeURIComponent(f.name)}`,
             { method: 'POST', body: f.blob, headers: { 'Content-Type': 'application/octet-stream' } });
           const j = await r.json().catch(() => ({}));
           if (!r.ok || !j.path) throw new Error(j.error || L(`Upload failed (${r.status})`, `上传失败（${r.status}）`));
+          log(`upload ${files[i].size} -> ${f.blob.size} bytes in ${Math.round(performance.now() - t0)} ms`);
           paths.push(j.path);
           pasteInto(s, j.path, paths.length > 1);
         } catch (err) {
@@ -119,23 +123,38 @@ export function createUploader({ term, session, badge, focus, log }) {
   return { pick };
 }
 
+// Claude reads an image at most 2576 px on the long edge and 3.75 megapixels and scales a bigger one down itself, so
+// pixels past that only cost upload time, which away from home (a relayed tailnet path) is seconds per megabyte. An
+// iPad Pro screenshot is 2752x2064 at 16 bits: 11 MB as PNG, half a megabyte as JPEG at Claude's size.
+const EDGE = 2576, AREA = 3.75e6, KEEP = 1 << 20;
+
 /**
- * The file as it will be sent: HEIC/HEIF as JPEG (Safari decodes HEIC), anything else as it is.
+ * The file as it will be sent: a PNG, JPEG or WebP picture within Claude's size and under 1 MB as it is; a bigger one,
+ * and any HEIC/HEIF (Claude Code reads no HEIC; Safari decodes it), as JPEG at most Claude's size. GIFs (maybe
+ * animated) and other files as they are.
  * @param {File} file
  * @returns {Promise<{name: string, blob: Blob}>}
  */
 export async function prepare(file) {
   const name = file.name || (file.type === 'image/png' ? 'image.png' : file.type === 'image/jpeg' ? 'image.jpg' : 'file');
-  if (!/^image\/hei[cf]/.test(file.type) && !/\.hei[cf]$/i.test(name)) return { name, blob: file };
+  const heic = /^image\/hei[cf]/.test(file.type) || /\.hei[cf]$/i.test(name);
+  if (!heic && !/^image\/(png|jpeg|webp)$/.test(file.type)) return { name, blob: file };
   try {
     const bmp = await createImageBitmap(file);
+    const s = Math.min(1, EDGE / Math.max(bmp.width, bmp.height), Math.sqrt(AREA / (bmp.width * bmp.height)));
+    if (s === 1 && !heic && file.size <= KEEP) { bmp.close?.(); return { name, blob: file }; }
     const c = document.createElement('canvas');
-    c.width = bmp.width;
-    c.height = bmp.height;
-    c.getContext('2d').drawImage(bmp, 0, 0);
+    c.width = Math.round(bmp.width * s);
+    c.height = Math.round(bmp.height * s);
+    const g = c.getContext('2d');
+    g.fillStyle = '#fff'; // a transparent PNG's background, which a JPEG would make black
+    g.fillRect(0, 0, c.width, c.height);
+    g.imageSmoothingQuality = 'high';
+    g.drawImage(bmp, 0, 0, c.width, c.height);
     bmp.close?.();
     const blob = await new Promise((res, rej) => c.toBlob((b) => (b ? res(b) : rej(new Error('toBlob'))), 'image/jpeg', 0.9));
-    return { name: name.replace(/\.hei[cf]$/i, '') + '.jpg', blob };
+    if (s === 1 && !heic && blob.size >= file.size) return { name, blob: file };
+    return { name: name.replace(/\.[^.]*$/, '') + '.jpg', blob };
   } catch {
     return { name, blob: file }; // could not decode: as it is
   }

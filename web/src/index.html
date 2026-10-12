@@ -45,7 +45,7 @@
   html.embedded #newtab { right: calc(50px + env(safe-area-inset-right)); }
   #newtab:hover { opacity: 1; }
   /* a touch screen (keyrow.mjs): the keys its keyboard lacks under the terminal while the keyboard is on, else a button
-     in the corner (left of the +) to bring the keyboard back */
+     in the corner (left of the +) to bring the keyboard back; left of either, a paperclip for photos and files */
   #keys { display: flex; gap: 6px; flex: none; user-select: none; -webkit-user-select: none; touch-action: manipulation;
     padding: 4px max(10px, env(safe-area-inset-right)) max(6px, env(safe-area-inset-bottom)) max(10px, env(safe-area-inset-left)); }
   #keys .strip { flex: 1; min-width: 0; display: flex; gap: 5px; overflow-x: auto; scrollbar-width: none; touch-action: pan-x;
@@ -56,17 +56,21 @@
     display: grid; place-items: center; -webkit-tap-highlight-color: transparent; }
   #keys button:active { background: rgba(255, 255, 255, .2); }
   #keys button.held { background: var(--fg); color: var(--bg); }
-  #keys .away { flex: none; width: 44px; color: rgba(200, 208, 224, .7); }
+  #keys .away, #keys .attach { flex: none; width: 44px; color: rgba(200, 208, 224, .7); }
   body.has-keys #term { padding-bottom: 4px; }
   body.kb-up #keys { padding-bottom: 6px; } /* the keyboard is below: no home indicator to clear */
   body.has-keys #newtab { bottom: calc(56px + env(safe-area-inset-bottom)); }
   body.has-keys.kb-up #newtab { bottom: 56px; }
-  #kbtoggle { position: fixed; right: calc(50px + env(safe-area-inset-right)); bottom: calc(10px + env(safe-area-inset-bottom)); z-index: 5;
+  #kbtoggle, #attach { position: fixed; right: calc(50px + env(safe-area-inset-right)); bottom: calc(10px + env(safe-area-inset-bottom)); z-index: 5;
     width: 32px; height: 32px; padding: 0; border: 0; display: grid; place-items: center; border-radius: 50%;
     background: rgba(255, 255, 255, .1); color: rgba(255, 255, 255, .8); opacity: .5; -webkit-tap-highlight-color: transparent; }
   html.embedded #kbtoggle { right: calc(90px + env(safe-area-inset-right)); }
   body.has-tabs #kbtoggle { right: calc(10px + env(safe-area-inset-right)); }
   html.embedded body.has-tabs #kbtoggle { right: calc(50px + env(safe-area-inset-right)); }
+  #attach { right: calc(90px + env(safe-area-inset-right)); }
+  html.embedded #attach { right: calc(130px + env(safe-area-inset-right)); }
+  body.has-tabs #attach { right: calc(50px + env(safe-area-inset-right)); }
+  html.embedded body.has-tabs #attach { right: calc(90px + env(safe-area-inset-right)); }
   /* the hosts page (hosts.mjs): a card over the terminal, the whole screen on a phone */
   #hosts { position: fixed; inset: 0; z-index: 20; display: grid; place-items: start center; overflow-y: auto; -webkit-overflow-scrolling: touch;
     padding: max(28px, env(safe-area-inset-top)) max(16px, env(safe-area-inset-right)) max(28px, env(safe-area-inset-bottom)) max(16px, env(safe-area-inset-left));

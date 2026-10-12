@@ -100,9 +100,9 @@ where it was. (<a href="docs/images/demo-5-sleep.mp4">video</a>)
 | Cmd Shift Left / Right (or [ / ]), Cmd 1..8, Cmd 9 | previous / next tab, that tab, the last tab |
 | Up / Down, Tab | history, completion of commands and host names |
 | Cmd = / Cmd - / Cmd 0 | font size, remembered; Cmd 0 is the default (`page.terminal.fontSize`, else 15) |
-| Cmd Shift I, Cmd V with a picture, a drop | photos and files to the tab's computer, kept in `~/Downloads/webmosh/` there; the path is pasted at the cursor (Claude Code attaches a pasted image path). HEIC becomes JPEG, at most 50 MB a file |
+| Cmd Shift I (on a touch screen also the paperclip), Cmd V with a picture, a drop | photos and files to the tab's computer, kept in `~/Downloads/webmosh/` there; the path is pasted at the cursor (Claude Code attaches a pasted image path). HEIC, and a picture over 1 MB or bigger than Claude reads (2576 px, 3.75 MP), becomes JPEG at most that size; at most 50 MB a file |
 | Cmd Shift K, Ctrl Space | the on-screen keyboard and iPadOS's keyboard bar away / back (`page.keyboard` below); switch input sources with the bar away |
-| a touch screen | under the terminal, the keys its keyboard lacks: Esc, Ctrl, Alt, Tab, the arrows, `\|` `~` `/` `-`; Ctrl and Alt hold for the next key, typed or tapped; the last key puts the keyboard away, a button in the corner brings it back |
+| a touch screen | under the terminal, the keys its keyboard lacks: Esc, Ctrl, Alt, Tab, the arrows, `\|` `~` `/` `-`; Ctrl and Alt hold for the next key, typed or tapped; a paperclip for photos and files; the last key puts the keyboard away, a button in the corner brings it back (the paperclip goes there too) |
 
 On Windows, Linux, ChromeOS and Android keyboards the page's keys take Alt Shift in place of Cmd and Cmd Shift
 (Alt Shift T, Alt Shift 1), since the system and the browser keep the others; Ctrl Shift C and Ctrl Shift V copy and
@@ -142,7 +142,7 @@ Tailscale on every device.
 | Device | What you get | Tried on |
 |---|---|---|
 | **iPad** | The best fit. Full screen in Safari or a kiosk app, like an app of its own; a Magic Keyboard with Option as Meta, dead keys and Chinese input; trackpad selection; copy from tmux into the iPad's clipboard; photos and files to the remote. The keyboard bar can go (`page.keyboard`). | real iPads: Safari, kiosk apps, an app embedding the page |
-| **Phone** | The on-screen keyboard, and above it a row of what it lacks: Esc, Ctrl and Alt for the next key, Tab, arrows that repeat, `\|` `~` `/` `-`. The terminal ends above the keyboard. | a real iPhone (Safari); other phones only emulated so far |
+| **Phone** | The on-screen keyboard, and above it a row of what it lacks: Esc, Ctrl and Alt for the next key, Tab, arrows that repeat, `\|` `~` `/` `-`, and a paperclip for photos and files. The terminal ends above the keyboard. | a real iPhone (Safari); other phones only emulated so far |
 | **Computer** | Mac, Windows, Linux, ChromeOS, in Chrome, Edge, Safari, Firefox (below) or another Chromium browser. Off Apple keyboards the page's keys are Alt Shift ones, and Ctrl Shift C / V copy and paste. | Chrome on a Mac; a Windows keyboard emulated |
 | **Firefox** | Works, over a WebSocket where the others use WebRTC: Firefox offers WebRTC no address on the Tailscale interface. A lost packet then holds up the screen, as with ssh; the prediction, roaming and sessions that outlive the connection stay. Any browser whose WebRTC cannot reach the relay moves there after two tries. | Firefox on a Mac; Chrome with WebRTC blocked |
 
