@@ -160,7 +160,7 @@ print(json.dumps({
     "listen": e["LISTEN"], "origin": e["ORIGIN"], "owner": e["OWNER"], "ice_nets": ["100.64.0.0/10"],
     "turn_listen": e["TSIP"] + ":" + e["TURN_PORT"] if e["TURN_PORT"] != "0" else "",
     "ssh_key": e["CONF_DIR"] + "/id_ed25519", "known_hosts": e["CONF_DIR"] + "/known_hosts", "detached_ttl": "12h",
-    "targets": [here], "default_target": e["NAME"],
+    "targets": [here],
 }, indent=2))
 ')"
 if [ -f "$CONF" ]; then

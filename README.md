@@ -22,8 +22,8 @@ Four more situations in <a href="#mosh-not-ssh">mosh, not ssh</a>. (<a href="doc
 > **webmosh needs [Tailscale](https://tailscale.com/download).** The relay is reachable only on your tailnet, and
 > your Tailscale login is the only way in (there is no password). Install Tailscale on the relay's computer and on
 > every device you open webmosh on (iPad, phone, computer), each signed in with the same Tailscale account. The free
-> Personal plan is enough. The computers you connect to need not be on it: one with a public address, such as a VPS,
-> is added by its address ([Hosts](#hosts)).
+> Personal plan is enough. Only the relay and your devices need it: a computer you connect to, such as a VPS, can stay
+> off the tailnet and be added by its address ([Hosts](#hosts)).
 
 On a Linux or macOS computer that stays on (it becomes the relay), with Tailscale signed in, HTTPS certificates on for
 the tailnet (Tailscale's admin console, DNS page) and mosh installed (`brew install mosh`, `apt install mosh`):
@@ -82,7 +82,8 @@ where it was. (<a href="docs/images/demo-5-sleep.mp4">video</a>)
 - **ssh tabs too,** with images (sixel, iTerm2) and scrollback, held by the relay.
 - **Photos and files** from your phone or iPad to the remote computer, the path pasted at the cursor (Claude Code
   attaches it).
-- **Any Linux or macOS computer** as the relay, and any of them as a host, set up with one line.
+- **Any Linux or macOS computer** as the relay, and any of them as a host, set up with one line: on your tailnet,
+  or off it (a VPS, a server at work) by its address.
 - **Your own look:** fonts, colours, a picture behind the text, all CSS.
 
 <details>
@@ -128,7 +129,7 @@ so a reload takes them up again as they were.
 - **You code from an iPad** on computers at home or in the cloud: the device webmosh suits best.
 - **You need a terminal on your phone** now and then: a Ctrl-C, a look at a build, a restart, over a shaky connection.
 - **You are on Windows or a Chromebook,** which have no mosh client of their own.
-- **You run a homelab on Tailscale** and want one address for every computer on it.
+- **You run a homelab on Tailscale** and want one address for every computer on it, and for a VPS or two outside it.
 - **You use several devices** and want the same hosts and tmux sessions on each, without setting up each.
 - **You keep long jobs in tmux** (builds, agents, servers) and come back to them from wherever you are.
 - **You build dashboards** and want a terminal inside one.
@@ -211,11 +212,11 @@ target is the relay's own computer. A MacBook works while it is awake: keep it o
 
 The installer ([Install](#install)) downloads the relay for this computer from the latest release (or
 `--version v1.2.3`) and checks it against the release's `SHA256SUMS`. It reads the computer's tailnet name and your
-login from Tailscale, writes `~/.config/webmosh/relay.json` with this computer as the first host (kept on later runs), installs
-the launchd or systemd service, lets the relay through the macOS firewall when that is on, and publishes the page
-with `tailscale serve --https=8445`. Run it again to update (when a release changes the hosts' gate, as v0.4.0 does,
-run each host's setup line again too: [Hosts](#hosts)); `--dry-run` shows what it would do, `--uninstall` takes
-it away; without Tailscale signed in, or without HTTPS certificates on for the tailnet, it stops and says so. In a
+login from Tailscale, writes `~/.config/webmosh/relay.json` with this computer as the first host (kept on later
+runs), installs the launchd or systemd service, lets the relay through the macOS firewall when that is on, and
+publishes the page with `tailscale serve --https=8445`. Run it again to update; when a release's notes say the gate
+changed, set each host up again too ([Hosts](#hosts)). `--dry-run` shows what it would do, `--uninstall` takes it
+away; without Tailscale signed in, or without HTTPS certificates on for the tailnet, it stops and says so. In a
 clone of this repository it installs your own build instead: `scripts/build-all.sh && scripts/install-relay.sh`.
 Tried so far: on a Mac with Apple silicon, from a build and from release files (install, a mosh and an ssh session
 over the tailnet, update, uninstall), and on a Raspberry Pi as dry runs.
@@ -254,12 +255,9 @@ Under a row's arrow: its name and aliases, the SSH port, **Test** (log in again 
 **Forget**, which shows the line that takes the key off the computer:
 `sed -i.bak '/webmosh-relay@<relay host>/d' ~/.ssh/authorized_keys && rm -f ~/.local/bin/webmosh-gate`.
 
-The gate on each host comes from its setup line, so updating the relay leaves it as it was. When a release changes
-the gate, press **Set up again** under each ready host's arrow and run the new line there (for a computer off the
-tailnet, through the same pipe as before). v0.4.0 is such a release: the relay ends a closed tab's mosh-server by
-its port and its pid, so a session the relay kept after its mosh-server had gone can no longer end a newer one that
-was given the same port. Until a host's gate is updated, the relay cannot end mosh-servers there (its log says to run
-the setup line again), and each waits out its 12 hours without a client.
+The gate on each host comes from its setup line, so updating the relay leaves it as it was. When a release's notes
+say the gate changed, press **Set up again** under each ready host's arrow and run the new line there (for a computer
+off the tailnet, through the same pipe as before).
 
 A computer off the tailnet, such as a VPS or a server at work, is added at the bottom of the hosts page by its
 address, `user@host` or `user@host:port` (an IPv6 address in brackets when a port follows), as the user the terminal
@@ -276,12 +274,6 @@ report comes back through the same pipe (its messages on stderr), to the curl th
 has no `from=`, since the relay's public address may change ([Security](#security)). Under its row's arrow, its
 address can be changed too; Forget takes it off the list.
 
-The page uses the relay's hosts API, which a panel embedding the page may use too (`frame_ancestors`): `GET
-/api/hosts`, and `POST /api/hosts/setup`, `test`, `update` (`name`, `aliases`, `port`, `off`, and a wan host's
-`address`) and `forget`, each with `{"node": "<node id>"}`, and `add` with `{"address": "user@host:port", "name":
-"vps"}`, which answers with the new host's node and its setup line. They need the owner's identity, and a POST an
-allowed `Origin`.
-
 Names are unique per protocol, not overall: `mosh box` and `ssh box` may reach different hosts. The config's
 targets come first, then the hosts in the order they were first seen.
 
@@ -292,9 +284,9 @@ Read this before running it. The relay is a remote shell service.
 - **Access is your Tailscale identity.** The relay listens on loopback behind `tailscale serve`, which adds a
   `Tailscale-User-Login` header to every request from the tailnet. Only the configured `owner` gets in, and the
   header is trusted only from loopback. The WebSockets (`/ws`, and a session's `/link`, which also needs a one-time
-  ticket from `/ws`) and the hosts API also check the request's `Origin`. There is
-  no other authentication, so never publish the relay to the internet (no Funnel, no port forward), and run it on a
-  computer where nobody else can reach its loopback port.
+  ticket from `/ws`) and the hosts API also check the request's `Origin`. There is no other authentication, so never
+  publish the relay to the internet (no Funnel, no port forward), and run it on a computer where nobody else can
+  reach its loopback port.
 - **The relay is trusted with your sessions.** mosh's datagrams are encrypted end to end between the page and
   `mosh-server`, and the relay only forwards them. But the relay starts `mosh-server` and reads the session key to
   hand it to the page, and keeps it in its state file so that sessions survive a restart. Whoever controls the relay
@@ -306,12 +298,15 @@ Read this before running it. The relay is a remote shell service.
   options, ending one by its port and pid, receiving an uploaded file and a status check. A login shell is a login
   shell: if the relay is compromised, so is every host's user that was set up.
 - **The setup line is `curl | sh`** (for a computer off the tailnet, `curl | ssh host sh | curl -T -`). It carries a
-  token for that one computer, valid for 30 minutes (a new line replaces it). Read `relay/setup/setup.sh` before running it; it changes only that user's `~/.ssh/authorized_keys` (one line,
-  with a backup of the old file) and `~/.local/bin/webmosh-gate`.
+  token for that one computer, valid for 30 minutes (a new line replaces it). Read `relay/setup/setup.sh` before
+  running it; it changes only that user's `~/.ssh/authorized_keys` (one line, with a backup of the old file) and
+  `~/.local/bin/webmosh-gate`.
 - **ntfy.** If `ntfy_topic` is set, new tailnet computers are announced there. Anyone who knows a topic's name can
   read it, so use a long random one.
-- **Diagnostics.** The page reports keyboard and pointer events with modifiers (Option, Ctrl, dead keys) to the
-  relay's journal for debugging the iPad. Plain letters and input method text are never reported.
+- **Diagnostics are off unless you turn them on.** With `page.diagnostics` set, or on a page opened with `?keylog`,
+  the page reports keyboard events with modifiers (Option, Ctrl, dead keys) and a line per pointer press to the
+  relay's journal, for debugging a device's keyboard. Plain letters and input method text are never reported. The
+  journal always gets the page's connection events (hidden, shown, reconnected), which carry nothing typed.
 
 ## Configuration
 
@@ -327,10 +322,9 @@ Read this before running it. The relay is a remote shell service.
 | `detached_ttl` | how long a session waits for its page, from when the page left, across relay restarts; default `12h` |
 | `state_dir` | sessions, hosts and device tabs; default systemd's `StateDirectory=`, else `~/Library/Application Support/webmosh` (macOS) or `~/.local/state/webmosh` |
 | `targets` | `id`, `name`, `aliases`, `host`, `user`, `mosh_server`, `locale`, `local`, `env`, `args`, `end_via_ssh` |
-| `default_target` | |
 | `frame_ancestors` | origins that may embed the page in an iframe and use the hosts API |
 | `lang` | `en` (default) or `zh`: the page's and the relay's own messages |
-| `page` | served to the page as `/site.json`: `theme` (an xterm.js theme laid over the default, Tomorrow Night), `terminal` (xterm.js options such as `fontSize`, the default size, `lineHeight`, `cursorStyle`) and `keyboard` (`"off"`: no on-screen keyboard or iPadOS keyboard bar until switched on, for tablets with a keyboard; phones keep theirs; each device remembers its own switch) |
+| `page` | served to the page as `/site.json`: `theme` (an xterm.js theme laid over the default, Tomorrow Night), `terminal` (xterm.js options such as `fontSize`, the default size, `lineHeight`, `cursorStyle`), `keyboard` (`"off"`: no on-screen keyboard or iPadOS keyboard bar until switched on, for tablets with a keyboard; phones keep theirs; each device remembers its own switch) and `diagnostics` (`true`: key and pointer diagnostics to the relay's journal, see [Security](#security)) |
 | `static_dir` | files served in place of the built-in ones (below) |
 | `ssh_from`, `hosts_scan`, `tailscale_status` | tailnet hosts: extra addresses for the key's `from=`, how often to read tailscale status (default `1m`), a status file instead (tests) |
 | `ntfy_server`, `ntfy_topic`, `hosts_page` | announce new tailnet computers on ntfy, with a link to the hosts page (`hosts_page`; default the page's own, `<origin>/?hosts`) |
@@ -352,6 +346,11 @@ posts `webmosh:focus` and `webmosh:hide` when it shows and hides the terminal, a
 to open a tab; the page posts `webmosh:active` while someone types, `webmosh:close` (`exit` at the last prompt) and
 `webmosh:toggle` (Cmd Shift H). `GET /api/device` tells the parent whether the terminal was on screen when that
 device was last seen.
+
+The parent may also use the relay's hosts API, as the hosts page does: `GET /api/hosts`, and `POST /api/hosts/setup`,
+`test`, `update` (`name`, `aliases`, `port`, `off`, and a wan host's `address`) and `forget`, each with
+`{"node": "<node id>"}`, and `add` with `{"address": "user@host:port", "name": "vps"}`, which answers with the new
+host's node and its setup line. They need the owner's identity, and a POST an allowed `Origin`.
 
 ## Compared with other apps
 
@@ -405,10 +404,16 @@ back in under a second.
 | `web/src/prompt.mjs`, `tabs.mjs` | the `webmosh>` prompt, the tab bar |
 | `web/src/keys.mjs`, `keytest.mjs` | keyboard mapping (Option as Meta, iPad dead keys), the `?keytest` sweep |
 | `web/src/upload.mjs` | photos and files to the tab's computer |
+| `web/src/hosts.mjs` | the hosts page (`setup`, `?hosts`) |
+| `web/src/keyrow.mjs`, `platform.mjs`, `fontsize.mjs` | the key row on touch screens, the keys off Apple keyboards, the font size |
 | `web/src/theme.mjs`, `i18n.mjs`, `custom.css` | default colours, English and Chinese, the placeholder for a deployment's styles |
 | `relay/` | the relay (Go, pion WebRTC with an embedded TURN server), with the page embedded |
-| `relay/hosts.go`, `relay/setup/` | tailnet hosts, the setup script and `webmosh-gate` |
+| `relay/session.go`, `mosh.go` | a session and the link attached to it; starting and ending mosh-server |
+| `relay/link.go` | a session's WebSocket, where the browser's WebRTC cannot reach the relay (Firefox) |
+| `relay/hosts.go`, `relay/setup/` | hosts on the tailnet and off it, the setup script and `webmosh-gate` |
 | `relay/pty.go` | ssh tabs: the relay's terminal and its output ring |
+| `relay/devices.go`, `upload.go` | each device's tabs, kept for a page that comes back with empty storage; uploads |
+| `scripts/install-relay.sh`, `relay/service/` | the installer, and the launchd and systemd service files |
 
 mosh itself is used as it is: `scripts/build-wasm.sh` stages mosh's sources and drops the three overrides in.
 

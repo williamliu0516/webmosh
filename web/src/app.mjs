@@ -39,6 +39,9 @@ const [site] = await Promise.all([
 ]);
 setLang(site.lang);
 const theme = { ...DEFAULT_THEME, ...site.theme };
+// Keyboard and pointer diagnostics to the relay's journal (see the block near the end): only where the deployment
+// turns them on (page.diagnostics) or the page is opened with ?keylog.
+const DIAG = site.diagnostics === true || params.has('keylog');
 // the page's own colors follow the theme's (without a transparent background's alpha)
 const opaque = (c) => (/^#[0-9a-f]{8}$/i.test(c) ? c.slice(0, 7) : c);
 document.documentElement.style.setProperty('--bg', opaque(theme.background));
@@ -455,7 +458,7 @@ if (!keytest) {
     // an input source switch stays unhandled, for iPadOS to act on after the page (see openForSwitch)
     if (a.t !== 'ime') e.preventDefault();
     e.stopImmediatePropagation();
-    if (a.t === 'ime') send({ t: 'keylog', lines: [`${Math.round(performance.now())} ime ${e.key === ' ' ? 'Ctrl+Space' : e.key || e.code} bar=${kbBar ? 'on' : kbTemp ? 'temp' : 'off'}`] });
+    if (a.t === 'ime' && DIAG) send({ t: 'keylog', lines: [`${Math.round(performance.now())} ime ${e.key === ' ' ? 'Ctrl+Space' : e.key || e.code} bar=${kbBar ? 'on' : kbTemp ? 'temp' : 'off'}`] });
     if (!e.repeat || a.t === 'prev' || a.t === 'next') pageAction(a);
   }, true);
 }
@@ -1264,11 +1267,12 @@ document.addEventListener('visibilitychange', () => {
 window.addEventListener('pageshow', (e) => { if (e.persisted) life('pageshow from the back/forward cache'); });
 
 
-// Keyboard diagnostics. Option, Ctrl and dead-key events always go to the relay's journal (never plain
-// letters or IME text, so typed passwords and messages stay out of it); ?keylog also shows the
-// last events on the page and records what was sent.
-{
-  const overlay = new URLSearchParams(location.search).has('keylog');
+// Keyboard diagnostics, with DIAG (page.diagnostics, or ?keylog): Option, Ctrl and dead-key events go to the relay's
+// journal (never plain letters or IME text, so typed passwords and messages stay out of it), and so does a line per
+// pointer press; ?keylog also shows the last events on the page and records what was sent. Off by default since
+// v0.4.1: a journal of someone's key presses is not something a relay should keep unasked.
+if (DIAG) {
+  const overlay = params.has('keylog');
   let box = null;
   const lines = [];
   if (overlay) {

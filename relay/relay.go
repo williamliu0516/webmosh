@@ -272,7 +272,7 @@ func (r *Relay) serveWS(w http.ResponseWriter, req *http.Request) {
 	}
 
 	dev := deviceKey(req)
-	hello := wsMsg{T: "hello", Login: login, Targets: r.allTargets(), Target: r.cfg.DefaultTarget, Saved: r.devices.get(dev).Tabs}
+	hello := wsMsg{T: "hello", Login: login, Targets: r.allTargets(), Saved: r.devices.get(dev).Tabs}
 	if err := send(hello); err != nil {
 		return
 	}
@@ -419,7 +419,8 @@ func (r *Relay) serveWS(w http.ResponseWriter, req *http.Request) {
 			}
 			// Ref: which of the page's offers this answers (a woken page can have sent more than one)
 			send(wsMsg{T: "answer", ID: s.id, SDP: answer, Ref: m.Ref})
-		case "keylog": // the page's ?keylog mode: Option and composition events only
+		case "keylog": // the page's journal: its connection events, and with page.diagnostics or ?keylog its Option, Ctrl,
+			// dead-key and pointer events (never plain letters or IME text)
 			for i, l := range m.Lines {
 				if i >= 50 {
 					break

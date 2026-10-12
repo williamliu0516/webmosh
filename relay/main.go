@@ -69,7 +69,6 @@ type Config struct {
 	DetachedTTL string   `json:"detached_ttl"` // how long a session waits for its page, e.g. "12h"
 	Targets     []Target `json:"targets"`
 
-	DefaultTarget  string   `json:"default_target"`  // the page opens this on load (the landing shell)
 	StateDir       string   `json:"state_dir"`       // sessions survive relay restarts; default: stateDir
 	FrameAncestors []string `json:"frame_ancestors"` // origins that may embed the page and use /api/hosts (a panel)
 

@@ -16,7 +16,6 @@
       "env": { "MOSH_SERVER_NETWORK_TMOUT": "43200" }
     }
   ],
-  "default_target": "here",
   "frame_ancestors": [],
   "lang": "en",
   "static_dir": "/home/you/.config/webmosh/static",
