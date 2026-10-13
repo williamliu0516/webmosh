@@ -54,7 +54,8 @@ TS="$(command -v tailscale || true)"
 [ -n "$TS" ] || [ ! -x /Applications/Tailscale.app/Contents/MacOS/Tailscale ] || TS=/Applications/Tailscale.app/Contents/MacOS/Tailscale
 [ -n "$TS" ] || die "Tailscale is not installed: https://tailscale.com/download"
 export TAILSCALE_BE_CLI=1
-serve() { "$TS" serve "$@" || { [ "$OS" = linux ] && sudo "$TS" serve "$@"; }; }   # Linux: root unless an operator is set
+# Linux: root unless an operator is set (tailscale set --operator), so a refusal there is retried with sudo, unprinted
+serve() { if [ "$OS" = linux ]; then "$TS" serve "$@" 2>/dev/null || sudo "$TS" serve "$@"; else "$TS" serve "$@"; fi; }
 
 if [ "$UNINSTALL" = 1 ]; then
   say "→ removing the webmosh relay service"
@@ -72,7 +73,9 @@ if [ "$UNINSTALL" = 1 ]; then
   say "→ tailscale serve: port $PORT off"
   if [ "$DRY" = 1 ]; then say "  would run: tailscale serve --https=$PORT off"; else serve --https="$PORT" off || true; fi
   run rm -f "$BIN" "$BIN.prev"
-  say "Done. Kept $CONF_DIR (the config and the relay's key) and the relay's state; remove them by hand if you like."
+  [ "$DRY" = 1 ] || rmdir "$INSTALL_DIR" 2>/dev/null || true
+  if [ "$OS" = darwin ]; then STATE="$HOME/Library/Application Support/webmosh"; else STATE=/var/lib/webmosh; fi
+  say "Done. Kept $CONF_DIR (the config and the relay's key) and $STATE (its state); remove them by hand if you like."
   exit 0
 fi
 
@@ -214,7 +217,7 @@ for i in $(seq 1 20); do
     say ""
     say "webmosh is running: $ORIGIN"
     say "Open it on a device on your tailnet, signed in to Tailscale as $OWNER, and type: mosh $NAME"
-    say "Other computers on the tailnet can be hosts too: see the README's Hosts section."
+    say "Other computers on the tailnet can be hosts too: type setup on the page (docs/hosts.md)."
     exit 0
   fi
   sleep 1

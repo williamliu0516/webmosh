@@ -6,3 +6,6 @@ relay/static/
 docs/art/preview/
 # private notes for agents, never committed
 CLAUDE.local.md
+docs/art/sim/DemoAgent.xcodeproj/
+docs/art/sim/Host/Info.plist
+docs/art/sim/Agent/Info.plist
