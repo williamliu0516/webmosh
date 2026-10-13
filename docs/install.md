@@ -12,6 +12,13 @@
 
 ## Step by step
 
+<img alt="Left, two terminals; right, an iPad in Safari. On mac-mini, curl fetches install-relay.sh and bash runs it: it checks the relay, writes its config, installs the service and prints the page's address. Safari opens that address; mosh mac-mini runs uname there, exit, then setup: the hosts page lists box and pi, not set up. Set up on pi gives a line; run in pi's terminal it says set up, the row turns Ready, and mosh pi opens a shell on pi." src="images/ipad-4-install.gif" width="100%">
+
+<sub>From nothing to two computers. (<a href="images/ipad-4-install.mp4">video</a>) The iPad is Xcode's simulator,
+typed on its on-screen keyboard; the computers' terminals are drawn from what the installer and the setup line printed
+as they ran, in sandboxes on one Mac, with a made-up tailnet and names. The waits play faster, and the picture says
+so.</sub>
+
 1. **Install the relay** on a Linux or macOS computer that stays on, with Tailscale signed in, HTTPS certificates on
    for the tailnet (Tailscale's admin console, DNS page) and mosh installed (`brew install mosh`, `apt install mosh`):
 
@@ -21,29 +28,15 @@
    bash install-relay.sh     # prints the page's address when the relay is up
    ```
 
-   (<a href="images/install-1-relay.mp4">video</a>)
-
-   <img alt="On a Mac terminal, curl downloads install-relay.sh and bash runs it: it downloads and checks the relay, writes its config, installs the service and prints the page's address." src="images/install-1-relay.gif" width="100%">
-
 2. **Open its address** on your iPad, phone or computer, in any browser ([devices](usage.md#devices-and-browsers)).
    On an iPad or a phone, Safari's Share > Add to Home Screen gives it a full screen of its own.
-   (<a href="images/install-2-open.mp4">video</a>)
 
-   <img alt="On an iPad, Safari opens the address; the webmosh prompt appears and hosts lists the Mac." src="images/install-2-open.gif" width="100%">
+3. **mosh to it:** `mosh <its name>`. The relay's own computer is your first host. More tabs: Cmd Shift T on a
+   keyboard; `ssh <name>` opens an ssh tab instead ([Using it](usage.md)).
 
-3. **mosh to it.** (<a href="images/install-3-mosh.mp4">video</a>)
-
-   <img alt="mosh mac-mini connects; uname and echo run on the Mac." src="images/install-3-mosh.gif" width="100%">
-
-4. **More tabs, and ssh too.** (<a href="images/install-4-tabs.mp4">video</a>)
-
-   <img alt="Cmd+Shift+T opens a second tab, which connects with ssh mac-mini; Cmd+1 goes back to the mosh tab." src="images/install-4-tabs.gif" width="100%">
-
-5. **More computers.** Type `setup`: the hosts page lists the other computers on your tailnet. Press **Set up** on
+4. **More computers.** Type `setup`: the hosts page lists the other computers on your tailnet. Press **Set up** on
    one, copy the line it shows, and run it in a terminal on that computer; the row turns ready, and `mosh <name>` and
    `ssh <name>` reach it ([Hosts](hosts.md)). A computer off the tailnet, such as a VPS, is added there by its address.
-
-<sub>The installer's output is real, from a sandbox with a made-up machine name; the iPad is the real page.</sub>
 
 ## Which computer
 

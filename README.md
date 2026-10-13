@@ -32,8 +32,15 @@ bash install-relay.sh     # prints the page's address when the relay is up
 2. **Type `mosh <this computer's name>`.** The relay's own computer is your first host.
 3. **More computers:** type `setup`, press **Set up** on one, and run the line it shows there.
 
+<img alt="Left, two terminals; right, an iPad in Safari. On mac-mini, curl fetches install-relay.sh and bash runs it: it checks the relay, writes its config, installs the service and prints the page's address. Safari opens that address; mosh mac-mini runs uname there, exit, then setup: the hosts page lists box and pi, not set up. Set up on pi gives a line; run in pi's terminal it says set up, the row turns Ready, and mosh pi opens a shell on pi." src="docs/images/ipad-4-install.gif" width="100%">
+
+<sub>From nothing to two computers. (<a href="docs/images/ipad-4-install.mp4">video</a>) The iPad is Xcode's simulator,
+typed on its on-screen keyboard; the computers' terminals are drawn from what the installer and the setup line printed
+as they ran, in sandboxes on one Mac, with a made-up tailnet and names. The waits play faster, and the picture says
+so.</sub>
+
 Installed and tried on a Mac with Apple silicon and a PC with Ubuntu 24.04 (x86-64); in daily use on a Raspberry Pi 4.
-Step by step with pictures, which computers, updating and doing it by hand: [Install](docs/install.md).
+Which computers, what the installer does, updating and doing it by hand: [Install](docs/install.md).
 
 ## Why mosh, not ssh
 
