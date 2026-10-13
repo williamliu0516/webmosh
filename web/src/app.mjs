@@ -501,6 +501,10 @@ function heard(s) {
   s.openedAt = 0;
 }
 const sessionStates = () => sessions().map((s) => `${short(s)} ${s.kind} dc=${s.dc?.readyState || '-'} pc=${s.pc?.connectionState || '-'}`).join(', ') || 'no sessions';
+// A session whose link must be made again: its channel closed, or its connection failed under a channel WebKit still
+// calls open. An iPad page back after minutes away had dc=open pc=failed, and the 'failed' handler's attach found no
+// socket, so neither the return nor the relay's hello attached it: "Last contact 3:53 ago" until a reload (2026-10-12).
+const linkDead = (s) => s.dc?.readyState !== 'open' || s.pc?.connectionState === 'failed';
 
 function connectWS() {
   if (ws && ws.readyState <= WebSocket.OPEN) return;
@@ -527,9 +531,9 @@ function onMessage(m) {
       if (wsDownAt) { life(`ws back after ${Date.now() - wsDownAt} ms`); wsDownAt = 0; }
       flushLife();
       // back after a dropped WebSocket: these sessions are still this page's (a new connection is a new owner to the
-      // relay), and reattach those whose data channel died too
+      // relay), and reattach those whose link died too
       if (sessions().length) send({ t: 'own', ids: sessions().map((s) => s.id) });
-      for (const s of sessions()) if (s.dc?.readyState !== 'open') attach(s, 'hello');
+      for (const s of sessions()) if (linkDead(s)) attach(s, 'hello');
       if (!helloSeen) adoptSaved(m.saved); // the relay's copy of this device's tabs, if newer than the page's own
       helloSeen = true;
       if (autoTarget && !keytest && active) {
@@ -1280,7 +1284,7 @@ document.addEventListener('visibilitychange', () => {
   hiddenAt = 0;
   if (webglLost) startWebgl();
   connectWS();
-  for (const s of sessions()) if (s.dc?.readyState !== 'open') attach(s, 'visible');
+  for (const s of sessions()) if (linkDead(s)) attach(s, 'visible');
 });
 window.addEventListener('pageshow', (e) => { if (e.persisted) life('pageshow from the back/forward cache'); });
 
