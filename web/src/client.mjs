@@ -65,7 +65,8 @@ export class MoshClient {
     this.after(this.M._wm_resize(cols, rows));
   }
 
-  /** A new link to the relay is open: let the server hear from us now (wm_poke), not at the next heartbeat. */
+  /** Let the server hear from us now (wm_poke), not at the next heartbeat: a new link is open, or the page asks
+   * whether the link still works (app.mjs probe). */
   opened() {
     if (this.closed) return;
     this.after(this.M._wm_poke());

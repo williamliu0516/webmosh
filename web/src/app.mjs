@@ -102,12 +102,82 @@ function keepBackgroundsClear(gl) {
   };
   proto.updateBackgrounds.clearBackgrounds = true;
 }
+// The WebGL renderer keeps the glyphs it has drawn in atlas pages, each in a GPU texture slot. Once 16 pages are full
+// (a lot of CJK) xterm 5.5 merges some into one, which moves the pages after them to other slots, and two things then
+// drew other characters in place of the right ones (2026-10-13, the iPad: 渲染 drawn as 海盗):
+// - a slot is uploaded again when its page's version differs from the one it last got, but versions count per page:
+//   a page could land in a slot that last got another page with the same version (merged pages all start at 1), and
+//   stayed wrong for good. So a slot that last got another page's canvas is uploaded again.
+// - a merge while a frame was being put together left the cells before it pointing at the old slots, until something
+//   drew again. So the frame is put together again when a page it started with has moved.
+// Both fixed in addon-webgl 0.20 beta.
+function followAtlasMerges(gl) {
+  const renderer = gl._renderer;
+  const glyphs = Object.getPrototypeOf(renderer?._glyphRenderer?.value ?? {}), frames = Object.getPrototypeOf(renderer ?? {});
+  if (!glyphs.render || !frames._updateModel || !frames._clearModel) {
+    console.warn('webgl: no renderer to patch, glyphs may come out wrong after many characters');
+    return;
+  }
+  if (glyphs.render.followAtlasMerges) return;
+  const render = glyphs.render, update = frames._updateModel;
+  glyphs.render = function (model) {
+    const pages = this._atlas?.pages ?? [], slots = this._atlasTextures;
+    for (let i = 0; i < pages.length && i < slots.length; i++) {
+      if (slots[i].canvas !== pages[i].canvas) { slots[i].canvas = pages[i].canvas; slots[i].version = -1; }
+    }
+    return render.call(this, model);
+  };
+  glyphs.render.followAtlasMerges = true;
+  frames._updateModel = function (start, end) {
+    let pages = this._charAtlas?.pages.slice() ?? [];
+    update.call(this, start, end);
+    // its glyphs are in the atlas now, so a second pass merges nothing more
+    for (let i = 0; i < 4 && pages.some((p, j) => this._charAtlas?.pages[j] !== p); i++) {
+      pages = this._charAtlas.pages.slice();
+      this._clearModel(true);
+      update.call(this, 0, this._terminal.rows - 1);
+    }
+  };
+}
+// xterm draws box drawing, block elements and powerline symbols itself over the whole cell, from the cell's top; with
+// a lineHeight over 1 text starts lower, in the middle of the taller cell. Their underlines are drawn the same height
+// below where each starts, so under these glyphs it sat higher than under the text beside them: tmux's current window,
+// an underlined "▎2:zsh", had a step in its underline (2026-10-13). So while the atlas draws one of them it takes the
+// character to be that much taller, which brings the underline down to the text's, and has the real height back when
+// it places the glyph in its cell. Still so in addon-webgl 0.20 beta.
+const drawnByXterm = (c) => (c >= 0x2500 && c <= 0x259f) || (c >= 0xe0a0 && c <= 0xe0a2) || (c >= 0xe0b0 && c <= 0xe0bf);
+function lowerUnderlines(gl) {
+  const proto = Object.getPrototypeOf(gl._renderer?._charAtlas ?? {});
+  if (!proto._drawToCache || !proto._findGlyphBoundingBox) { console.warn('webgl: no atlas to patch, underlines may step'); return; }
+  if (proto._drawToCache.lowerUnderlines) return;
+  const draw = proto._drawToCache, place = proto._findGlyphBoundingBox;
+  proto._drawToCache = function (chars, ...rest) {
+    const config = this._config, height = config.deviceCharHeight;
+    const code = typeof chars === 'number' ? chars : chars.length === 1 ? chars.charCodeAt(0) : 0;
+    if (config.lineHeight === 1 || config.customGlyphs === false || !drawnByXterm(code)) return draw.call(this, chars, ...rest);
+    this._realCharHeight = height;
+    config.deviceCharHeight = height + Math.round((config.deviceCellHeight - height) / 2);
+    try {
+      return draw.call(this, chars, ...rest);
+    } finally {
+      config.deviceCharHeight = height;
+      this._realCharHeight = undefined;
+    }
+  };
+  proto._findGlyphBoundingBox = function (...args) {
+    if (this._realCharHeight !== undefined) this._config.deviceCharHeight = this._realCharHeight;
+    return place.apply(this, args);
+  };
+  proto._drawToCache.lowerUnderlines = true;
+}
 function startWebgl() {
   webglLost = false;
   try {
     const gl = new WebglAddon();
     term.loadAddon(gl);
     keepBackgroundsClear(gl);
+    followAtlasMerges(gl);
+    lowerUnderlines(gl);
     gl.onContextLoss(() => {
       life('webgl context lost, the DOM renderer until the page is shown again');
       gl.dispose();
@@ -200,7 +270,7 @@ window.webmosh.keyboardUI = () => term.textarea?.getAttribute('inputmode') !== '
 
 // Each tab is the page's prompt or one mosh session (tabs.mjs). They share the terminal: only the
 // active tab draws; the others keep running, and a switch redraws from the tab's own state.
-/** @typedef {{id: string, kind: 'mosh' | 'ssh', target: string, client: MoshClient | PtyClient, ice: RTCIceServer[], tab: Tab, pc?: RTCPeerConnection, dc?: RTCDataChannel, attaching?: boolean, attachWs?: WebSocket, attachRef?: string, openedAt?: number, closing?: boolean, released?: boolean}} Session */
+/** @typedef {{id: string, kind: 'mosh' | 'ssh', target: string, client: MoshClient | PtyClient, ice: RTCIceServer[], tab: Tab, pc?: RTCPeerConnection, dc?: RTCDataChannel, attaching?: boolean, attachWs?: WebSocket, attachRef?: string, probing?: object, openedAt?: number, closing?: boolean, released?: boolean}} Session */
 /** @typedef {{n: number, label: string, title: string, target: string, kind: 'mosh' | 'ssh', tmux: string, reattach?: string, resume?: string, restore?: {target: string, label: string, tmux: string, kind?: string, id?: string} | null, session: Session | null, opening: boolean, closed?: boolean, prompt: ReturnType<typeof createPrompt>}} Tab */
 /** @type {Tab[]} */
 const tabs = [];
@@ -501,10 +571,30 @@ function heard(s) {
   s.openedAt = 0;
 }
 const sessionStates = () => sessions().map((s) => `${short(s)} ${s.kind} dc=${s.dc?.readyState || '-'} pc=${s.pc?.connectionState || '-'}`).join(', ') || 'no sessions';
-// A session whose link must be made again: its channel closed, or its connection failed under a channel WebKit still
-// calls open. An iPad page back after minutes away had dc=open pc=failed, and the 'failed' handler's attach found no
-// socket, so neither the return nor the relay's hello attached it: "Last contact 3:53 ago" until a reload (2026-10-12).
-const linkDead = (s) => s.dc?.readyState !== 'open' || s.pc?.connectionState === 'failed';
+// A session whose link must be made again: its channel closed, its connection failed under a channel WebKit still
+// calls open, or the server did not answer a poke over it (probe, below). An iPad page back after minutes away had
+// dc=open pc=failed, and the 'failed' handler's attach found no socket, so neither the return nor the relay's hello
+// attached it: "Last contact 3:53 ago" until a reload (2026-10-12).
+const linkDead = (s) => s.dc?.readyState !== 'open' || s.pc?.connectionState === 'failed' || !!s.pc?.unanswered;
+// Whether a mosh link that looks open still works, asked of the server: a poke (wm_poke, acked within ~100 ms), and a
+// link it has not answered within PROBE_MS is made again. The connection's state can't say: an iPad page back from the
+// background saw it go failed, then disconnected, then failed again 15 s later, the screen on "Last contact" all along
+// (2026-10-12 journal). Asked when the page is back (visible, or the relay's hello after its socket dropped; WKWebView
+// may come back without a visibilitychange) and when mosh would say "Last contact" under a visible page (quietCheck).
+const PROBE_MS = 1000;
+function probe(s, why) {
+  if (s.kind !== 'mosh' || s.released || s.attaching || linkDead(s) || s.probing === s.pc) return;
+  const pc = s.pc;
+  s.probing = pc;
+  s.client.opened();
+  setTimeout(() => {
+    if (s.probing === pc) s.probing = null;
+    if (s.pc !== pc || s.released || s.client.sinceHeard() < PROBE_MS) return;
+    pc.unanswered = true;
+    life(`${short(s)} no answer to a poke in ${PROBE_MS} ms (${why})`);
+    attach(s, `no answer (${why})`, true);
+  }, PROBE_MS);
+}
 
 function connectWS() {
   if (ws && ws.readyState <= WebSocket.OPEN) return;
@@ -533,7 +623,7 @@ function onMessage(m) {
       // back after a dropped WebSocket: these sessions are still this page's (a new connection is a new owner to the
       // relay), and reattach those whose link died too
       if (sessions().length) send({ t: 'own', ids: sessions().map((s) => s.id) });
-      for (const s of sessions()) if (linkDead(s)) attach(s, 'hello');
+      for (const s of sessions()) if (linkDead(s)) attach(s, 'hello'); else probe(s, 'hello');
       if (!helloSeen) adoptSaved(m.saved); // the relay's copy of this device's tabs, if newer than the page's own
       helloSeen = true;
       if (autoTarget && !keytest && active) {
@@ -1284,8 +1374,13 @@ document.addEventListener('visibilitychange', () => {
   hiddenAt = 0;
   if (webglLost) startWebgl();
   connectWS();
-  for (const s of sessions()) if (linkDead(s)) attach(s, 'visible');
+  for (const s of sessions()) if (linkDead(s)) attach(s, 'visible'); else probe(s, 'visible');
 });
+// mosh says "Last contact" after 6.5 s without the server; under a visible page, ask whether the link still works
+setInterval(() => {
+  if (document.visibilityState !== 'visible') return;
+  for (const s of sessions()) if (s.kind === 'mosh' && s.client.sinceHeard() > 6500) probe(s, 'quiet');
+}, 1000);
 window.addEventListener('pageshow', (e) => { if (e.persisted) life('pageshow from the back/forward cache'); });
 
 
